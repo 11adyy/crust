@@ -76,18 +76,29 @@ impl BlockType {
     }
 
     pub fn should_render_face_against(&self, neighbor: BlockType) -> bool {
+        
         if neighbor == BlockType::Air {
             return true;
         }
+
+        
+        
+        
         if *self == BlockType::Water {
-            return neighbor == BlockType::Air;
+            return false;
         }
+
+        
         if neighbor == BlockType::Water {
             return true;
         }
+
+        
         if *self == BlockType::Leaves && neighbor == BlockType::Leaves {
             return true;
         }
+
+        
         neighbor.is_transparent()
     }
 
