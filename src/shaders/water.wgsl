@@ -15,8 +15,11 @@ struct Uniforms {
     camera_pos: vec3<f32>,
     time: f32,
     sun_position: vec3<f32>,
-    _padding: f32,
+    is_underwater: f32,
+    screen_size: vec2<f32>,
+    _padding: vec2<f32>,
 };
+
 
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
@@ -29,6 +32,14 @@ var texture_sampler: sampler;
 var shadow_map: texture_depth_2d;
 @group(0) @binding(4)
 var shadow_sampler: sampler_comparison;
+
+
+@group(0) @binding(5)
+var ssr_color: texture_2d<f32>;
+@group(0) @binding(6)
+var ssr_depth: texture_depth_2d;
+@group(0) @binding(7)
+var ssr_sampler: sampler;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -80,6 +91,97 @@ const PI: f32 = 3.14159265359;
 const SHADOW_MAP_SIZE: f32 = 2048.0;
 const GOLDEN_ANGLE: f32 = 2.39996322972865332;
 const PCF_SAMPLES: i32 = 24;
+const SSR_MAX_STEPS: i32 = 64;
+const SSR_BINARY_SEARCH_STEPS: i32 = 8;
+const SSR_MAX_DISTANCE: f32 = 60.0;
+const SSR_THICKNESS: f32 = 0.15; 
+
+/// Screen Space Reflections ray marching
+/// Returns vec4 where xyz = reflected color, w = confidence (0 = no hit, 1 = solid hit)
+fn ssr_trace(
+    world_pos: vec3<f32>,
+    reflect_dir: vec3<f32>,
+    screen_pos: vec4<f32>
+) -> vec4<f32> {
+    var ray_pos = world_pos;
+    let step_size = SSR_MAX_DISTANCE / f32(SSR_MAX_STEPS);
+    
+    var hit_found = false;
+    var uv_hit = vec2<f32>(0.0);
+    
+    
+    for (var i: i32 = 0; i < SSR_MAX_STEPS; i++) {
+        ray_pos += reflect_dir * step_size;
+
+        
+        let ray_clip = uniforms.view_proj * vec4<f32>(ray_pos, 1.0);
+        let ray_ndc = ray_clip.xyz / ray_clip.w;
+
+        
+        let ray_uv = vec2<f32>(
+            ray_ndc.x * 0.5 + 0.5,
+            1.0 - (ray_ndc.y * 0.5 + 0.5)
+        );
+
+        
+        if ray_uv.x < 0.0 || ray_uv.x > 1.0 || ray_uv.y < 0.0 || ray_uv.y > 1.0 {
+            break;
+        }
+
+        
+        let scene_depth = textureSample(ssr_depth, ssr_sampler, ray_uv);
+        let ray_depth = ray_ndc.z;
+
+        
+        if ray_depth > scene_depth && ray_depth < scene_depth + SSR_THICKNESS {
+            hit_found = true;
+            uv_hit = ray_uv;
+            
+            
+            
+            var start_pos = ray_pos - reflect_dir * step_size;
+            var end_pos = ray_pos;
+            
+            for (var j: i32 = 0; j < SSR_BINARY_SEARCH_STEPS; j++) {
+                let mid_pos = (start_pos + end_pos) * 0.5;
+                
+                let mid_clip = uniforms.view_proj * vec4<f32>(mid_pos, 1.0);
+                let mid_ndc = mid_clip.xyz / mid_clip.w;
+                let mid_uv = vec2<f32>(
+                    mid_ndc.x * 0.5 + 0.5,
+                    1.0 - (mid_ndc.y * 0.5 + 0.5)
+                );
+                
+                let mid_scene_depth = textureSample(ssr_depth, ssr_sampler, mid_uv);
+                let mid_ray_depth = mid_ndc.z;
+                
+                if mid_ray_depth > mid_scene_depth {
+                    end_pos = mid_pos; 
+                    uv_hit = mid_uv;
+                } else {
+                    start_pos = mid_pos; 
+                }
+            }
+            break;
+        }
+    }
+
+    if hit_found {
+        
+        let scene_color = textureSample(ssr_color, ssr_sampler, uv_hit).rgb;
+
+        
+        let edge_x = min(uv_hit.x, 1.0 - uv_hit.x);
+        let edge_y = min(uv_hit.y, 1.0 - uv_hit.y);
+        let edge_fade = min(edge_x, edge_y) * 10.0;
+        let confidence = clamp(edge_fade, 0.0, 1.0);
+
+        return vec4<f32>(scene_color, confidence);
+    }
+
+    
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+}
 
 /// Calculate sky color with localized sunrise/sunset gradient
 fn calculate_sky_color(view_dir: vec3<f32>, sun_dir: vec3<f32>) -> vec3<f32> {
@@ -169,6 +271,49 @@ fn world_space_noise(world_pos: vec3<f32>) -> f32 {
     return fract(sin(dot(floor(p.xz), vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
 
+/// Calculate perturbed water normal for realistic ripple reflections
+/// Uses derivative of wave functions with noise and crossing wave patterns
+fn calculate_water_normal(world_pos: vec3<f32>, time: f32) -> vec3<f32> {
+    
+    let noise1 = fract(sin(dot(world_pos.xz * 0.1, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+    let noise2 = fract(sin(dot(world_pos.xz * 0.15, vec2<f32>(39.346, 11.135))) * 43758.5453);
+    let noise_offset = (noise1 - 0.5) * 0.3;
+    
+    
+    let wave1_dx = cos(world_pos.x * 0.5 + time * 2.0 + noise_offset) * 0.025;
+    let wave2_dz = cos(world_pos.z * 0.7 + time * 1.5 + noise_offset) * 0.02;
+    
+    
+    let diag1 = cos((world_pos.x + world_pos.z) * 0.4 + time * 2.5) * 0.018;
+    let diag2 = cos((world_pos.x - world_pos.z) * 0.35 + time * 2.2) * 0.015;
+    
+    
+    let angle1 = cos((world_pos.x * 0.866 + world_pos.z * 0.5) * 0.5 + time * 1.8) * 0.012;
+    let angle2 = cos((world_pos.x * 0.5 + world_pos.z * 0.866) * 0.45 + time * 2.1) * 0.012;
+    let angle3 = cos((world_pos.x * 0.866 - world_pos.z * 0.5) * 0.55 + time * 1.9) * 0.01;
+    
+    
+    let ripple_scale = 1.0 + noise2 * 0.5;
+    let ripple1 = cos(world_pos.x * 3.0 * ripple_scale + time * 4.0) * 0.008;
+    let ripple2 = cos(world_pos.z * 2.8 * ripple_scale + time * 3.5) * 0.007;
+    let ripple3 = cos((world_pos.x + world_pos.z) * 2.0 + time * 5.0) * 0.005;
+    let ripple4 = cos((world_pos.x - world_pos.z) * 2.2 + time * 4.5) * 0.005;
+    
+    
+    
+    let dx = wave1_dx 
+           + diag1 + diag2 
+           + angle1 * 0.866 + angle2 * 0.5 + angle3 * 0.866
+           + ripple1 + ripple3 + ripple4;
+    let dz = wave2_dz 
+           + diag1 - diag2 
+           + angle1 * 0.5 + angle2 * 0.866 - angle3 * 0.5
+           + ripple2 + ripple3 - ripple4;
+    
+    
+    return normalize(vec3<f32>(-dx, 1.0, -dz));
+}
+
 fn calculate_shadow(world_pos: vec3<f32>, normal: vec3<f32>, sun_dir: vec3<f32>) -> f32 {
     if sun_dir.y < 0.05 {
         return 0.0;
@@ -243,8 +388,17 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     let shimmer = shimmer1 * shimmer2 * 0.15;
     
     
+    let perturbed_normal = calculate_water_normal(in.world_pos, uniforms.time);
+    
+    
+    
+    let dist_to_camera = length(in.world_pos - uniforms.camera_pos);
+    let normal_blend = clamp(1.0 - dist_to_camera / 100.0, 0.3, 1.0);
+    let water_normal = normalize(mix(in.normal, perturbed_normal, normal_blend));
+    
+    
     let view_dir = normalize(uniforms.camera_pos - in.world_pos);
-    let fresnel = pow(1.0 - max(dot(view_dir, in.normal), 0.0), 3.0);
+    let fresnel = pow(1.0 - max(dot(view_dir, water_normal), 0.0), 3.0);
     
     let sun_dir = normalize(uniforms.sun_position);
     
@@ -257,7 +411,24 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     let fragment_view_dir = normalize(in.world_pos - uniforms.camera_pos);
     
     
-    let sky_color = calculate_sky_color(fragment_view_dir, sun_dir);
+    
+    let reflect_dir_ssr = reflect(fragment_view_dir, water_normal);
+
+    
+    
+    let sky_color = calculate_sky_color(reflect_dir_ssr, sun_dir);
+    
+    
+    let ssr_result = ssr_trace(in.world_pos, reflect_dir_ssr, in.clip_position);
+    
+    
+    
+    let ssr_distance_fade = clamp(1.0 - dist_to_camera / 150.0, 0.0, 1.0);
+    var reflection_color = sky_color;
+    if ssr_result.w > 0.0 {
+        let ssr_blend = ssr_result.w * 0.85 * ssr_distance_fade;
+        reflection_color = mix(sky_color, ssr_result.rgb, ssr_blend);
+    }
     
     var shadow = 1.0;
     if sun_dir.y > 0.0 {
@@ -269,21 +440,24 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient = mix(ambient_night, ambient_day, day_factor);
     
     
-    var water_color = mix(base_water, sky_color, fresnel * 0.6);
+    var water_color = mix(base_water, reflection_color, fresnel * 0.6);
     water_color += vec3<f32>(shimmer * shadow * day_factor);
     
     
+    
     if sun_dir.y > 0.0 {
-        let reflect_dir = reflect(-sun_dir, in.normal);
-        let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 64.0);
-        water_color += vec3<f32>(1.0, 0.95, 0.8) * spec * 0.8 * shadow * day_factor;
+        let spec_normal = normalize(mix(in.normal, water_normal, 0.3)); 
+        let reflect_dir = reflect(-sun_dir, spec_normal);
+        let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 256.0); 
+        water_color += vec3<f32>(1.0, 0.95, 0.8) * spec * 1.5 * shadow * day_factor;
     }
     
     
     if night_factor > 0.2 {
         let moon_dir = normalize(vec3<f32>(0.3, 0.5, -0.8));
-        let moon_reflect = reflect(-moon_dir, in.normal);
-        let moon_spec = pow(max(dot(view_dir, moon_reflect), 0.0), 32.0);
+        let spec_normal = normalize(mix(in.normal, water_normal, 0.4));
+        let moon_reflect = reflect(-moon_dir, spec_normal);
+        let moon_spec = pow(max(dot(view_dir, moon_reflect), 0.0), 64.0);
         water_color += vec3<f32>(0.7, 0.8, 1.0) * moon_spec * 0.3 * night_factor;
     }
     
@@ -291,20 +465,51 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     
     
     let dist = length(in.world_pos.xz - uniforms.camera_pos.xz);
-    let visibility_night = 12.0;
-    let visibility_day = 250.0;
-    let visibility_range = mix(visibility_night, visibility_day, day_factor);
+    
+    
+    let is_underwater = uniforms.is_underwater > 0.5;
+    
+    var visibility_range: f32;
+    var fog_color_final: vec3<f32>;
+    
+    if is_underwater {
+        
+        visibility_range = 20.0;
+        fog_color_final = vec3<f32>(0.05, 0.15, 0.3);
+    } else {
+        let visibility_night = 20.0;  
+        let visibility_day = 250.0;
+        visibility_range = mix(visibility_night, visibility_day, day_factor);
+        
+        let night_fog_color = vec3<f32>(0.001, 0.001, 0.008);  
+        fog_color_final = mix(night_fog_color, sky_color, day_factor);
+    }
     
     let fog_start = visibility_range * 0.2;
     let fog_end = visibility_range;
     
     let visibility = clamp((fog_end - dist) / (fog_end - fog_start), 0.0, 1.0);
     
-    let fog_color = mix(vec3<f32>(0.0, 0.0, 0.0), sky_color, day_factor);
-    let final_color = mix(fog_color, water_color, visibility);
+    var final_color = mix(fog_color_final, water_color, visibility);
     
     
-    let alpha = 0.75 + fresnel * 0.2;
+    if is_underwater {
+        let water_tint = vec3<f32>(0.5, 0.8, 1.0);
+        final_color = final_color * water_tint;
+        
+        
+        let caustic = sin(in.world_pos.x * 0.5 + uniforms.time * 2.0) * 
+                      sin(in.world_pos.z * 0.5 + uniforms.time * 1.5) * 0.15 + 0.85;
+        final_color = final_color * caustic;
+    }
+    
+    
+    var alpha: f32;
+    if is_underwater {
+        alpha = 0.9;
+    } else {
+        alpha = 0.75 + fresnel * 0.2;
+    }
     
     return vec4<f32>(final_color, alpha);
 }

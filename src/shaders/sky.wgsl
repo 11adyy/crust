@@ -10,8 +10,9 @@ struct Uniforms {
     camera_pos: vec3<f32>,
     time: f32,
     sun_position: vec3<f32>,
-    _padding: f32,
+    is_underwater: f32,
 };
+
 
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
@@ -128,8 +129,8 @@ fn calculate_sky_color(view_dir: vec3<f32>, sun_dir: vec3<f32>) -> vec3<f32> {
         sunset_color += sunset_red * glow_wide * 0.5 * horizon_boost;
         
         
-        let opposite_glow = max(0.0, -cos_angle_horizontal) * 0.2;
-        sunset_color += sunset_pink * opposite_glow * horizon_band * smoothstep(0.0, 0.1, v_len);
+        let pink_glow = pow(max(0.0, cos_angle_horizontal), 2.5) * 0.4;
+        sunset_color += sunset_pink * pink_glow * horizon_band;
         
         sky_color = mix(sky_color, sky_color + sunset_color, sunset_intensity);
     }
@@ -146,6 +147,15 @@ fn calculate_sky_color(view_dir: vec3<f32>, sun_dir: vec3<f32>) -> vec3<f32> {
 /// Fragment shader - compute sky color for each pixel
 @fragment
 fn fs_sky(in: VertexOutput) -> @location(0) vec4<f32> {
+    
+    if uniforms.is_underwater > 0.5 {
+        
+        let wave = sin(in.ndc_pos.x * 3.0 + uniforms.time * 2.0) * 
+                   sin(in.ndc_pos.y * 2.0 + uniforms.time * 1.5) * 0.05;
+        let water_color = vec3<f32>(0.05 + wave, 0.15 + wave, 0.3 + wave);
+        return vec4<f32>(water_color, 1.0);
+    }
+    
     let sun_dir = normalize(uniforms.sun_position);
     
     
@@ -159,3 +169,4 @@ fn fs_sky(in: VertexOutput) -> @location(0) vec4<f32> {
     
     return vec4<f32>(sky_color, 1.0);
 }
+
