@@ -96,11 +96,8 @@ impl World {
         let player_cx = (player_x / CHUNK_SIZE as f32).floor() as i32;
         let player_cz = (player_z / CHUNK_SIZE as f32).floor() as i32;
 
-        for cx in (player_cx - GENERATION_DISTANCE)..=(player_cx + GENERATION_DISTANCE) {
-            for cz in (player_cz - GENERATION_DISTANCE)..=(player_cz + GENERATION_DISTANCE) {
-                self.ensure_chunk_generated(cx, cz);
-            }
-        }
+        
+        
 
         let chunks_to_remove: Vec<(i32, i32)> = self
             .chunks
@@ -1014,6 +1011,45 @@ impl World {
 
     pub fn is_solid(&self, x: i32, y: i32, z: i32) -> bool {
         self.get_block(x, y, z).is_solid()
+    }
+
+    pub fn is_subchunk_occluded(&self, cx: i32, cz: i32, sy: i32) -> bool {
+        
+        
+        if let Some(chunk) = self.chunks.get(&(cx, cz)) {
+            if !chunk.subchunks[sy as usize].is_fully_opaque {
+                return false;
+            }
+
+            
+            if sy > 0 && !chunk.subchunks[(sy - 1) as usize].is_fully_opaque {
+                return false;
+            }
+            if sy < NUM_SUBCHUNKS as i32 - 1 && !chunk.subchunks[(sy + 1) as usize].is_fully_opaque
+            {
+                return false;
+            }
+            
+            if sy == 0 || sy == NUM_SUBCHUNKS as i32 - 1 {
+                return false;
+            }
+
+            
+            let neighbors = [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)];
+            for (ncx, ncz) in neighbors {
+                if let Some(nchunk) = self.chunks.get(&(ncx, ncz)) {
+                    if !nchunk.subchunks[sy as usize].is_fully_opaque {
+                        return false;
+                    }
+                } else {
+                    
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        false
     }
 
     pub fn find_spawn_point(&self) -> (f32, f32, f32) {

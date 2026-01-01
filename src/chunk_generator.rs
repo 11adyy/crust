@@ -168,6 +168,7 @@ impl ChunkGenerator {
         
         for subchunk in &mut chunk.subchunks {
             subchunk.check_empty();
+            subchunk.check_fully_opaque();
         }
 
         chunk
