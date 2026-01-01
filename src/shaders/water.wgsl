@@ -4,6 +4,7 @@
 /// It includes support for:
 /// - Procedural vertex wave displacement (sinusoidal)
 /// - Fresnel-based sky reflections
+/// - Screen Space Reflections (SSR)
 /// - Specular highlights for sun and moon
 /// - Procedural shimmer/glitter effects
 /// - Depth-based fog and alpha blending
@@ -17,7 +18,8 @@ struct Uniforms {
     sun_position: vec3<f32>,
     is_underwater: f32,
     screen_size: vec2<f32>,
-    _padding: vec2<f32>,
+    water_level: f32,
+    reflection_mode: f32, 
 };
 
 
@@ -69,10 +71,11 @@ fn vs_water(model: VertexInput) -> VertexOutput {
     var pos = model.position;
     if model.normal.y > 0.5 {
         
-        let wave1 = sin(pos.x * 0.5 + uniforms.time * 2.0) * 0.05;
-        let wave2 = sin(pos.z * 0.7 + uniforms.time * 1.5) * 0.04;
-        let wave3 = sin((pos.x + pos.z) * 0.3 + uniforms.time * 3.0) * 0.03;
-        pos.y += wave1 + wave2 + wave3;
+        let wave1 = sin(pos.x * 0.4 + uniforms.time * 2.1) * 0.05;
+        let wave2 = sin(pos.z * 0.5 + uniforms.time * 1.8) * 0.04;
+        let wave3 = sin((pos.x + pos.z) * 0.25 + uniforms.time * 2.8) * 0.035;
+        let wave4 = sin((pos.x * 0.3 - pos.z * 0.4) + uniforms.time * 2.3) * 0.025;
+        pos.y += wave1 + wave2 + wave3 + wave4;
         
         
         pos.y -= 0.15;
@@ -419,15 +422,22 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     let sky_color = calculate_sky_color(reflect_dir_ssr, sun_dir);
     
     
-    let ssr_result = ssr_trace(in.world_pos, reflect_dir_ssr, in.clip_position);
-    
-    
+    let reflection_mode = i32(uniforms.reflection_mode);
+    var reflection_color = sky_color;
     
     let ssr_distance_fade = clamp(1.0 - dist_to_camera / 150.0, 0.0, 1.0);
-    var reflection_color = sky_color;
-    if ssr_result.w > 0.0 {
-        let ssr_blend = ssr_result.w * 0.85 * ssr_distance_fade;
-        reflection_color = mix(sky_color, ssr_result.rgb, ssr_blend);
+    
+    
+    if reflection_mode == 0 {
+        reflection_color = sky_color;
+    }
+    
+    else {
+        let ssr_result = ssr_trace(in.world_pos, reflect_dir_ssr, in.clip_position);
+        if ssr_result.w > 0.0 {
+            let ssr_blend = ssr_result.w * 0.85 * ssr_distance_fade;
+            reflection_color = mix(sky_color, ssr_result.rgb, ssr_blend);
+        }
     }
     
     var shadow = 1.0;
@@ -446,10 +456,10 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     
     
     if sun_dir.y > 0.0 {
-        let spec_normal = normalize(mix(in.normal, water_normal, 0.3)); 
+        let spec_normal = normalize(mix(in.normal, water_normal, 0.2)); 
         let reflect_dir = reflect(-sun_dir, spec_normal);
-        let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 256.0); 
-        water_color += vec3<f32>(1.0, 0.95, 0.8) * spec * 1.5 * shadow * day_factor;
+        let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 64.0); 
+        water_color += vec3<f32>(1.0, 0.95, 0.8) * spec * 1.0 * shadow * day_factor;
     }
     
     
