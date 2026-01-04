@@ -61,10 +61,104 @@ struct VertexOutput {
     @location(4) tex_index: f32,
 };
 
+
+
+
+
+/// Single Gerstner wave calculation
+/// Returns: vec3(horizontal_displacement_x, vertical_displacement, horizontal_displacement_z)
+/// 
+/// Gerstner waves create realistic circular orbital motion of water particles,
+/// producing sharper peaks and flatter troughs than simple sine waves.
+fn gerstner_wave(
+    pos: vec2<f32>,        
+    time: f32,             
+    wavelength: f32,       
+    amplitude: f32,        
+    steepness: f32,        
+    direction: vec2<f32>   
+) -> vec3<f32> {
+    let k = 2.0 * 3.14159265359 / wavelength;  
+    let c = sqrt(9.8 / k);                      
+    let d = normalize(direction);
+    let f = k * (dot(d, pos) - c * time);       
+
+    let a = steepness / k;  
+
+    return vec3<f32>(
+        d.x * a * cos(f),   
+        amplitude * sin(f), 
+        d.y * a * cos(f)    
+    );
+}
+
+/// Calculate combined Gerstner waves with LOD (Level of Detail)
+/// Waves fade out based on distance to camera for performance
+fn calculate_gerstner_displacement(pos: vec3<f32>, time: f32, camera_pos: vec3<f32>) -> vec3<f32> {
+    
+    let dist = length(pos.xz - camera_pos.xz);
+    
+    
+    let lod_near = 0.0;
+    let lod_far = 80.0;
+    let lod_factor = 1.0 - clamp((dist - lod_near) / (lod_far - lod_near), 0.0, 1.0);
+    
+    
+    if lod_factor < 0.01 {
+        return vec3<f32>(0.0, 0.0, 0.0);
+    }
+    
+    
+    let smooth_lod = lod_factor * lod_factor;
+
+    var displacement = vec3<f32>(0.0, 0.0, 0.0);
+    let p = pos.xz;
+    
+    
+    displacement += gerstner_wave(
+        p, time * 0.5,             
+        10.0,                      
+        0.07 * smooth_lod,         
+        0.15,                      
+        vec2<f32>(1.0, 0.3)        
+    );
+    
+    
+    displacement += gerstner_wave(
+        p, time * 0.4,
+        6.0,
+        0.032 * smooth_lod,
+        0.12,
+        vec2<f32>(0.7, 0.7)
+    );
+    
+    
+    displacement += gerstner_wave(
+        p, time * 0.7,
+        4.0,
+        0.023 * smooth_lod,
+        0.1,
+        vec2<f32>(-0.5, 0.8)
+    );
+    
+    
+    let detail_lod = smooth_lod * smooth_lod;
+    displacement += gerstner_wave(
+        p, time * 1.0,
+        2.0,
+        0.015 * detail_lod,
+        0.08,
+        vec2<f32>(0.2, -0.9)
+    );
+
+    return displacement;
+}
+
 /// Water Vertex Shader
 ///
-/// Displaces the y-coordinate of top-facing faces using multiple sine waves
-/// to create a dynamic liquid surface.
+/// Displaces water vertices using Gerstner waves for realistic ocean-like motion.
+/// Uses only vertical (Y) displacement to prevent water from separating at shores.
+/// LOD reduces wave detail at distance for better performance.
 @vertex
 fn vs_water(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -72,11 +166,8 @@ fn vs_water(model: VertexInput) -> VertexOutput {
     var pos = model.position;
     if model.normal.y > 0.5 {
         
-        let wave1 = sin(pos.x * 0.4 + uniforms.time * 2.1) * 0.05;
-        let wave2 = sin(pos.z * 0.5 + uniforms.time * 1.8) * 0.04;
-        let wave3 = sin((pos.x + pos.z) * 0.25 + uniforms.time * 2.8) * 0.035;
-        let wave4 = sin((pos.x * 0.3 - pos.z * 0.4) + uniforms.time * 2.3) * 0.025;
-        pos.y += wave1 + wave2 + wave3 + wave4;
+        let wave_offset = calculate_gerstner_displacement(pos, uniforms.time, uniforms.camera_pos);
+        pos.y += wave_offset.y;
         
         
         pos.y -= 0.15;
@@ -414,8 +505,12 @@ fn fs_water(in: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         
         let ssr_result = ssr_trace(in.world_pos, reflect_dir_ssr, in.clip_position);
-        if ssr_result.w > 0.0 {
-            let ssr_blend = ssr_result.w * 0.85 * ssr_distance_fade;
+        
+        
+        let smoothed_confidence = smoothstep(0.15, 0.7, ssr_result.w);
+        if smoothed_confidence > 0.01 {
+            
+            let ssr_blend = smoothed_confidence * 0.75 * ssr_distance_fade;
             reflection_color = mix(sky_color, ssr_result.rgb, ssr_blend);
         }
     }
