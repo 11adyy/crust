@@ -20,6 +20,7 @@ pub enum BlockType {
     Ice,
     Cactus,
     DeadBush,
+    WoodStairs,
 }
 
 impl BlockType {
@@ -40,6 +41,7 @@ impl BlockType {
             BlockType::Ice => [0.7, 0.85, 0.95],
             BlockType::Cactus => [0.2, 0.55, 0.2],
             BlockType::DeadBush => [0.55, 0.4, 0.25],
+            BlockType::WoodStairs => [0.6, 0.4, 0.2],
         }
     }
 
@@ -72,6 +74,7 @@ impl BlockType {
                 | BlockType::Leaves
                 | BlockType::Ice
                 | BlockType::DeadBush
+                | BlockType::WoodStairs
         )
     }
 
@@ -103,6 +106,13 @@ impl BlockType {
         }
 
         
+        
+        
+        if neighbor == BlockType::WoodStairs {
+            return true;
+        }
+
+        
         neighbor.is_transparent()
     }
 
@@ -123,6 +133,7 @@ impl BlockType {
             BlockType::Ice => 0.5,
             BlockType::Cactus => 0.4,
             BlockType::DeadBush => 0.0,
+            BlockType::WoodStairs => 2.0,
         }
     }
 
@@ -143,6 +154,7 @@ impl BlockType {
             BlockType::Ice => TEX_ICE,
             BlockType::Cactus => TEX_CACTUS,
             BlockType::DeadBush => TEX_DEAD_BUSH,
+            BlockType::WoodStairs => TEX_WOOD_TOP,
         }
     }
 
@@ -158,6 +170,7 @@ impl BlockType {
         match self {
             BlockType::Grass => TEX_DIRT,
             BlockType::Wood => TEX_WOOD_TOP,
+            BlockType::WoodStairs => TEX_WOOD_TOP, 
             _ => self.tex_top(),
         }
     }
@@ -170,7 +183,7 @@ impl BlockType {
             BlockType::Leaves => 0.5,
             BlockType::Snow => 0.8,
             BlockType::Ice | BlockType::Water => 0.1,
-            BlockType::Wood | BlockType::Cactus => 0.6,
+            BlockType::Wood | BlockType::Cactus | BlockType::WoodStairs => 0.6,
             BlockType::Air => 1.0,
         }
     }

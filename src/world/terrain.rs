@@ -7,6 +7,7 @@ use crate::core::block::BlockType;
 use crate::core::chunk::Chunk;
 use crate::core::vertex::Vertex;
 use crate::render::mesh::add_quad;
+use crate::world::structures::{House, Structure};
 
 pub struct World {
     pub chunks: HashMap<(i32, i32), Chunk>,
@@ -824,6 +825,61 @@ impl World {
                         chunk.set_block(lx, height, lz, BlockType::DeadBush);
                     }
                 }
+
+                
+
+                
+                let cell_size = 50;
+                let cx = world_x.div_euclid(cell_size);
+                let cz = world_z.div_euclid(cell_size);
+
+                let cell_hash = self.position_hash(cx, cz);
+                let offset_x = (cell_hash % (cell_size as u32)) as i32;
+                let offset_z = ((cell_hash >> 8) % (cell_size as u32)) as i32;
+
+                let target_x = cx * cell_size + offset_x;
+                let target_z = cz * cell_size + offset_z;
+
+                if world_x == target_x && world_z == target_z {
+                    let house_noise = self
+                        .simplex_trees
+                        .get([world_x as f64 * 0.02 + 2000.0, world_z as f64 * 0.02]);
+
+                    if house_noise > 0.3 {
+                        let house = House::new();
+                        let biome_name = format!("{:?}", biome);
+                        if house.structure.biomes.contains(&biome_name) {
+                            println!(
+                                "Generated House at X: {}, Y: {}, Z: {}",
+                                world_x, height, world_z
+                            );
+                            self.place_structure(chunk, lx, height, lz, &house.structure);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn place_structure(&self, chunk: &mut Chunk, lx: i32, y: i32, lz: i32, structure: &Structure) {
+        for (sx, sy, sz, block) in &structure.blocks {
+            let tx = lx + sx;
+            let ty = y + sy;
+            let tz = lz + sz;
+
+            if tx >= 0
+                && tx < CHUNK_SIZE
+                && tz >= 0
+                && tz < CHUNK_SIZE
+                && ty >= 0
+                && ty < WORLD_HEIGHT
+            {
+                
+                
+                
+                
+                
+                chunk.set_block(tx, ty, tz, *block);
             }
         }
     }
@@ -1155,6 +1211,195 @@ impl World {
                     } else {
                         (&mut vertices, &mut indices)
                     };
+
+                    if block == BlockType::WoodStairs {
+                        
+                        
+                        
+
+                        let x = world_x as f32;
+                        let y_f = y as f32;
+                        let z = world_z as f32;
+                        let color = block.color();
+                        let tex_top = block.tex_top() as f32;
+                        let tex_side = block.tex_side() as f32;
+                        let r = block.roughness();
+                        let m = block.metallic();
+
+                        let neighbors = [
+                            get_block_fast(world_x - 1, y, world_z), 
+                            get_block_fast(world_x + 1, y, world_z), 
+                            get_block_fast(world_x, y - 1, world_z), 
+                            get_block_fast(world_x, y + 1, world_z), 
+                            get_block_fast(world_x, y, world_z - 1), 
+                            get_block_fast(world_x, y, world_z + 1), 
+                        ];
+
+                        
+                        if block.should_render_face_against(neighbors[2]) {
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x, y_f, z + 1.0],
+                                [x, y_f, z],
+                                [x + 1.0, y_f, z],
+                                [x + 1.0, y_f, z + 1.0],
+                                [0.0, -1.0, 0.0],
+                                color,
+                                tex_top,
+                                r,
+                                m,
+                            );
+                        }
+
+                        
+                        add_quad(
+                            target_verts,
+                            target_inds,
+                            [x, y_f + 0.5, z],
+                            [x, y_f + 0.5, z + 0.5],
+                            [x + 1.0, y_f + 0.5, z + 0.5],
+                            [x + 1.0, y_f + 0.5, z],
+                            [0.0, 1.0, 0.0],
+                            color,
+                            tex_top,
+                            r,
+                            m,
+                        );
+
+                        
+                        if block.should_render_face_against(neighbors[3]) {
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x, y_f + 1.0, z + 0.5],
+                                [x, y_f + 1.0, z + 1.0],
+                                [x + 1.0, y_f + 1.0, z + 1.0],
+                                [x + 1.0, y_f + 1.0, z + 0.5],
+                                [0.0, 1.0, 0.0],
+                                color,
+                                tex_top,
+                                r,
+                                m,
+                            );
+                        }
+
+                        
+                        if block.should_render_face_against(neighbors[4]) {
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x + 1.0, y_f, z],
+                                [x, y_f, z],
+                                [x, y_f + 0.5, z],
+                                [x + 1.0, y_f + 0.5, z],
+                                [0.0, 0.0, -1.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                        }
+
+                        
+                        
+                        add_quad(
+                            target_verts,
+                            target_inds,
+                            [x + 1.0, y_f + 0.5, z + 0.5],
+                            [x, y_f + 0.5, z + 0.5],
+                            [x, y_f + 1.0, z + 0.5],
+                            [x + 1.0, y_f + 1.0, z + 0.5],
+                            [0.0, 0.0, -1.0],
+                            color,
+                            tex_side,
+                            r,
+                            m,
+                        );
+
+                        
+                        if block.should_render_face_against(neighbors[5]) {
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x, y_f, z + 1.0],
+                                [x + 1.0, y_f, z + 1.0],
+                                [x + 1.0, y_f + 1.0, z + 1.0],
+                                [x, y_f + 1.0, z + 1.0],
+                                [0.0, 0.0, 1.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                        }
+
+                        
+                        if block.should_render_face_against(neighbors[0]) {
+                            
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x, y_f, z],
+                                [x, y_f, z + 1.0],
+                                [x, y_f + 0.5, z + 1.0],
+                                [x, y_f + 0.5, z],
+                                [-1.0, 0.0, 0.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                            
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x, y_f + 0.5, z + 0.5],
+                                [x, y_f + 0.5, z + 1.0],
+                                [x, y_f + 1.0, z + 1.0],
+                                [x, y_f + 1.0, z + 0.5],
+                                [-1.0, 0.0, 0.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                        }
+
+                        
+                        if block.should_render_face_against(neighbors[1]) {
+                            
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x + 1.0, y_f, z + 1.0],
+                                [x + 1.0, y_f, z],
+                                [x + 1.0, y_f + 0.5, z],
+                                [x + 1.0, y_f + 0.5, z + 1.0],
+                                [1.0, 0.0, 0.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                            
+                            add_quad(
+                                target_verts,
+                                target_inds,
+                                [x + 1.0, y_f + 0.5, z + 1.0],
+                                [x + 1.0, y_f + 0.5, z + 0.5],
+                                [x + 1.0, y_f + 1.0, z + 0.5],
+                                [x + 1.0, y_f + 1.0, z + 1.0],
+                                [1.0, 0.0, 0.0],
+                                color,
+                                tex_side,
+                                r,
+                                m,
+                            );
+                        }
+
+                        continue;
+                    }
 
                     
                     let neighbors = [
