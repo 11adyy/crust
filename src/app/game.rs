@@ -2394,18 +2394,21 @@ impl State {
         } 
 
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        if !terrain_vertices.is_empty() && !terrain_indices.is_empty() {
+            let key = render3d::render::indirect::SubchunkKey {
+                chunk_x: cx,
+                chunk_z: cz,
+                subchunk_y: sy,
+            };
+            self.indirect_manager.upload_subchunk(
+                &self.device,
+                &self.queue,
+                key,
+                &terrain_vertices,
+                &terrain_indices,
+                &aabb_copy,
+            );
+        }
     }
 
     fn update(&mut self) {
@@ -2895,11 +2898,18 @@ impl State {
 
             ssr_terrain_pass.set_pipeline(&self.ssr_render_pipeline);
             ssr_terrain_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            for (vb, ib, num_indices, _) in &visible_terrain {
-                ssr_terrain_pass.set_vertex_buffer(0, vb.slice(..));
-                ssr_terrain_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                ssr_terrain_pass.draw_indexed(0..*num_indices, 0, 0..1);
-            }
+
+            
+            ssr_terrain_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
+            ssr_terrain_pass.set_index_buffer(
+                self.indirect_manager.index_buffer().slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            ssr_terrain_pass.multi_draw_indexed_indirect(
+                self.indirect_manager.draw_commands(),
+                0,
+                self.indirect_manager.active_count(),
+            );
         }
         
         
@@ -2948,11 +2958,17 @@ impl State {
             
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            for (vb, ib, num_indices, _) in &visible_terrain {
-                render_pass.set_vertex_buffer(0, vb.slice(..));
-                render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-            }
+
+            render_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
+            render_pass.set_index_buffer(
+                self.indirect_manager.index_buffer().slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.multi_draw_indexed_indirect(
+                self.indirect_manager.draw_commands(),
+                0,
+                self.indirect_manager.active_count(),
+            );
 
             
             render_pass.set_pipeline(&self.water_pipeline);
