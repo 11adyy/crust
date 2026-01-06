@@ -8,6 +8,9 @@ pub mod player;
 pub mod render;
 
 
+pub mod render_core;
+
+
 pub mod world;
 
 

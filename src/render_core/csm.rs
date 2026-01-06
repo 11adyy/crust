@@ -190,24 +190,18 @@ fn calculate_frustum_corners(
 }
 
 /// Snap shadow matrix to texel grid to reduce shadow edge shimmer during camera movement
+/// Uses floor() for consistent snapping direction (prevents jumping between two positions)
 fn snap_to_texel_grid(matrix: Matrix4<f32>, shadow_map_size: f32) -> Matrix4<f32> {
-    
-    let origin = matrix * cgmath::Vector4::new(0.0, 0.0, 0.0, 1.0);
-
     
     let texel_size = 2.0 / shadow_map_size;
 
     
-    let snapped_x = (origin.x / texel_size).round() * texel_size;
-    let snapped_y = (origin.y / texel_size).round() * texel_size;
-
-    let offset_x = snapped_x - origin.x;
-    let offset_y = snapped_y - origin.y;
-
     
     let mut result = matrix;
-    result.w.x += offset_x;
-    result.w.y += offset_y;
+
+    
+    result.w.x = (result.w.x / texel_size).floor() * texel_size;
+    result.w.y = (result.w.y / texel_size).floor() * texel_size;
 
     result
 }
