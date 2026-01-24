@@ -33,9 +33,9 @@ var<uniform> uniforms: Uniforms;
 var texture_atlas: texture_2d_array<f32>;
 @group(0) @binding(2)
 var texture_sampler: sampler;
-/// Depth map generated during the shadow pass (cascade 0 for now)
+/// Depth map array generated during the shadow pass (4 cascades)
 @group(0) @binding(3)
-var shadow_map: texture_depth_2d;
+var shadow_map: texture_depth_2d_array;
 @group(0) @binding(4)
 var shadow_sampler: sampler_comparison;
 
@@ -76,7 +76,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 @vertex
 fn vs_shadow(model: VertexInput) -> @builtin(position) vec4<f32> {
     
-    return uniforms.csm_view_proj[0] * vec4<f32>(model.position, 1.0);
+    return uniforms.view_proj * vec4<f32>(model.position, 1.0);
 }
 
 const PI: f32 = 3.14159265359;
@@ -240,7 +240,7 @@ fn calculate_shadow(world_pos: vec3<f32>, normal: vec3<f32>, sun_dir: vec3<f32>,
     }
 
     
-    let cascade_idx = 0; 
+    let cascade_idx = select_cascade(view_depth);
     
     
     let shadow_pos = uniforms.csm_view_proj[cascade_idx] * vec4<f32>(world_pos, 1.0);
@@ -283,6 +283,7 @@ fn calculate_shadow(world_pos: vec3<f32>, normal: vec3<f32>, sun_dir: vec3<f32>,
             shadow_map,
             shadow_sampler,
             uv + offset,
+            cascade_idx,
             receiver_depth - bias
         );
     }
