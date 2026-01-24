@@ -71,94 +71,82 @@ struct VertexOutput {
 
 
 
-/// Single Gerstner wave calculation
-/// Returns: vec3(horizontal_displacement_x, vertical_displacement, horizontal_displacement_z)
-/// 
-/// Gerstner waves create realistic circular orbital motion of water particles,
-/// producing sharper peaks and flatter troughs than simple sine waves.
-fn gerstner_wave(
-    pos: vec2<f32>,        
-    time: f32,             
-    wavelength: f32,       
-    amplitude: f32,        
-    steepness: f32,        
-    direction: vec2<f32>   
-) -> vec3<f32> {
-    let k = 2.0 * 3.14159265359 / wavelength;  
-    let c = sqrt(9.8 / k);                      
-    let d = normalize(direction);
-    let f = k * (dot(d, pos) - c * time);       
 
-    let a = steepness / k;  
+struct WaveParams {
+    wavelength: f32,
+    amplitude: f32,
+    steepness: f32,
+    direction: vec2<f32>,
+    speed: f32,
+};
 
-    return vec3<f32>(
-        d.x * a * cos(f),   
-        amplitude * sin(f), 
-        d.y * a * cos(f)    
-    );
+fn get_wave(idx: i32) -> WaveParams {
+    switch (idx) {
+        case 0: { return WaveParams(12.0, 0.08, 0.15, vec2<f32>(1.0, 0.3), 0.5); }
+        case 1: { return WaveParams(8.0, 0.04, 0.12, vec2<f32>(0.7, 0.7), 0.4); }
+        case 2: { return WaveParams(5.0, 0.03, 0.1, vec2<f32>(-0.5, 0.8), 0.7); }
+        case 3: { return WaveParams(2.5, 0.015, 0.05, vec2<f32>(0.2, -0.9), 1.2); }
+        
+        case 4: { return WaveParams(1.0, 0.008, 0.0, vec2<f32>(0.1, 1.0), 2.1); }
+        case 5: { return WaveParams(0.7, 0.005, 0.0, vec2<f32>(-0.8, -0.2), 2.8); }
+        default: { return WaveParams(1.0, 0.0, 0.0, vec2<f32>(1.0, 0.0), 1.0); }
+    }
 }
 
-/// Calculate combined Gerstner waves with LOD (Level of Detail)
-/// Waves fade out based on distance to camera for performance
-fn calculate_gerstner_displacement(pos: vec3<f32>, time: f32, camera_pos: vec3<f32>) -> vec3<f32> {
-    
+/// Calculate combined Gerstner waves and their derivatives for normals
+fn calculate_water_data(pos: vec3<f32>, time: f32, camera_pos: vec3<f32>, compute_normal: bool) -> vec4<f32> {
     let dist = length(pos.xz - camera_pos.xz);
-    
-    
     let lod_near = 0.0;
-    let lod_far = 80.0;
+    let lod_far = 100.0;
     let lod_factor = 1.0 - clamp((dist - lod_near) / (lod_far - lod_near), 0.0, 1.0);
-    
-    
-    if lod_factor < 0.01 {
-        return vec3<f32>(0.0, 0.0, 0.0);
-    }
-    
-    
     let smooth_lod = lod_factor * lod_factor;
 
-    var displacement = vec3<f32>(0.0, 0.0, 0.0);
+    if lod_factor < 0.005 {
+        return vec4<f32>(0.0, 1.0, 0.0, 0.0); 
+    }
+
+    var y_offset: f32 = 0.0;
+    var dx: f32 = 0.0;
+    var dz: f32 = 0.0;
+
     let p = pos.xz;
     
     
-    displacement += gerstner_wave(
-        p, time * 0.5,             
-        10.0,                      
-        0.07 * smooth_lod,         
-        0.15,                      
-        vec2<f32>(1.0, 0.3)        
-    );
     
-    
-    displacement += gerstner_wave(
-        p, time * 0.4,
-        6.0,
-        0.032 * smooth_lod,
-        0.12,
-        vec2<f32>(0.7, 0.7)
-    );
-    
-    
-    displacement += gerstner_wave(
-        p, time * 0.7,
-        4.0,
-        0.023 * smooth_lod,
-        0.1,
-        vec2<f32>(-0.5, 0.8)
-    );
-    
-    
-    let detail_lod = smooth_lod * smooth_lod;
-    displacement += gerstner_wave(
-        p, time * 1.0,
-        2.0,
-        0.015 * detail_lod,
-        0.08,
-        vec2<f32>(0.2, -0.9)
-    );
+    let num_waves = 6;
+    for (var i: i32 = 0; i < num_waves; i++) {
+        let w = get_wave(i);
+        let k = 2.0 * 3.14159265359 / w.wavelength;
+        let c = sqrt(9.8 / k) * w.speed;
+        let d = normalize(w.direction);
+        let f = k * (dot(d, p) - c * time);
+        
+        
+        let intensity = w.amplitude * smooth_lod;
+        
+        
+        if i < 4 {
+            y_offset += intensity * sin(f);
+        }
 
-    return displacement;
+        
+        if compute_normal {
+            let df = intensity * k * cos(f);
+            dx += d.x * df;
+            dz += d.y * df;
+        }
+    }
+
+    
+    return vec4<f32>(y_offset, -dx, 1.0, -dz);
 }
+
+/// Simplified calculate_gerstner_displacement to use shared data
+fn calculate_gerstner_displacement(pos: vec3<f32>, time: f32, camera_pos: vec3<f32>) -> vec3<f32> {
+    let data = calculate_water_data(pos, time, camera_pos, false);
+    return vec3<f32>(0.0, data.x, 0.0);
+}
+
 
 /// Water Vertex Shader
 ///
