@@ -225,7 +225,7 @@ impl World {
     }
 
     pub fn get_terrain_height(&self, x: i32, z: i32) -> i32 {
-        let blend_radius = 1; 
+        let blend_radius = 0; 
         let mut total_height = 0.0;
         let mut weights = 0.0;
 
@@ -1167,10 +1167,10 @@ impl World {
         chunk_z: i32,
         subchunk_y: i32,
     ) -> ((Vec<Vertex>, Vec<u32>), (Vec<Vertex>, Vec<u32>)) {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        let mut water_vertices = Vec::new();
-        let mut water_indices = Vec::new();
+        let mut vertices = Vec::with_capacity(1500);
+        let mut indices = Vec::with_capacity(750);
+        let mut water_vertices = Vec::with_capacity(500);
+        let mut water_indices = Vec::with_capacity(250);
 
         let base_x = chunk_x * CHUNK_SIZE;
         let base_y = subchunk_y * SUBCHUNK_HEIGHT;
@@ -1259,11 +1259,12 @@ impl World {
         }
 
         
+        
         let quantize_color = |c: [f32; 3]| -> [u8; 3] {
             [
-                (c[0] * 255.0) as u8,
-                (c[1] * 255.0) as u8,
-                (c[2] * 255.0) as u8,
+                ((c[0] * 255.0) as u8) & 0xFC,  
+                ((c[1] * 255.0) as u8) & 0xFC,
+                ((c[2] * 255.0) as u8) & 0xFC,
             ]
         };
 
