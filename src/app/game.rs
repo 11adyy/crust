@@ -44,12 +44,10 @@ struct Args {
 use render3d::chunk_loader::ChunkLoader;
 use render3d::render_core::csm::CsmManager;
 use render3d::{
-    ASYNC_WORKER_COUNT, BlockType, CHUNK_SIZE, CSM_CASCADE_SPLITS, Camera, DEFAULT_WORLD_FILE,
-    DiggingState, GENERATION_DISTANCE, IndirectManager, InputState, MAX_CHUNKS_PER_FRAME,
-    MAX_MESH_BUILDS_PER_FRAME, NUM_SUBCHUNKS, RENDER_DISTANCE, SUBCHUNK_HEIGHT, SavedWorld,
-    SubchunkKey, TEXTURE_SIZE, Uniforms, Vertex, World, build_crosshair, build_player_model,
-    extract_frustum_planes, generate_texture_atlas, load_texture_atlas_from_file, load_world,
-    save_world,
+    BlockType, CHUNK_SIZE, Camera, DEFAULT_WORLD_FILE, DiggingState, GENERATION_DISTANCE,
+    IndirectManager, InputState, MAX_CHUNKS_PER_FRAME, MAX_MESH_BUILDS_PER_FRAME, NUM_SUBCHUNKS,
+    RENDER_DISTANCE, SUBCHUNK_HEIGHT, SavedWorld, Uniforms, Vertex, World, build_crosshair,
+    build_player_model, extract_frustum_planes, load_world, save_world,
 };
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -196,6 +194,10 @@ struct State {
     hiz_pipeline: wgpu::ComputePipeline,
     hiz_bind_groups: Vec<wgpu::BindGroup>,
     hiz_bind_group_layout: wgpu::BindGroupLayout,
+
+    
+    depth_resolve_pipeline: wgpu::RenderPipeline,
+    depth_resolve_bind_group: wgpu::BindGroup,
 }
 
 impl State {
@@ -1196,6 +1198,75 @@ impl State {
         let menu_buffer = glyphon::Buffer::new(&mut font_system, Metrics::new(24.0, 32.0));
 
         
+        let depth_resolve_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Depth Resolve Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/depth_resolve.wgsl").into()),
+        });
+
+        let depth_resolve_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Depth Resolve Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: true,
+                    },
+                    count: None,
+                }],
+            });
+
+        let depth_resolve_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Depth Resolve Bind Group"),
+            layout: &depth_resolve_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&depth_texture),
+            }],
+        });
+
+        let depth_resolve_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Depth Resolve Pipeline Layout"),
+                bind_group_layouts: &[&depth_resolve_bind_group_layout],
+                immediate_size: 0,
+            });
+
+        let depth_resolve_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Depth Resolve Pipeline"),
+                layout: Some(&depth_resolve_pipeline_layout),
+                cache: None,
+                vertex: wgpu::VertexState {
+                    module: &depth_resolve_shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &depth_resolve_shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+            });
+
+        
 
         
         let ssao_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1990,6 +2061,9 @@ impl State {
             hiz_pipeline,
             hiz_bind_groups,
             hiz_bind_group_layout,
+            
+            depth_resolve_pipeline,
+            depth_resolve_bind_group,
         }
     }
 
@@ -2144,6 +2218,17 @@ impl State {
                 ],
                 label: Some("water_bind_group"),
             });
+
+            
+            self.depth_resolve_bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Depth Resolve Bind Group"),
+                    layout: &self.depth_resolve_pipeline.get_bind_group_layout(0),
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.depth_texture),
+                    }],
+                });
 
             self.viewport.update(
                 &self.queue,
@@ -2310,117 +2395,115 @@ impl State {
     }
 
     fn update_subchunk_mesh(&mut self, result: render3d::mesh_loader::MeshResult) {
-        
         let cx = result.cx;
         let cz = result.cz;
         let sy = result.sy;
 
-        let aabb_copy;
-
-        {
+        let aabb_copy = {
             let mut world = self.world.write();
-            if let Some(chunk) = world.chunks.get_mut(&(result.cx, result.cz)) {
-                let subchunk = &mut chunk.subchunks[result.sy as usize];
 
-                
-                aabb_copy = subchunk.aabb;
+            
+            let chunk = match world.chunks.get_mut(&(cx, cz)) {
+                Some(chunk) => chunk,
+                None => return, 
+            };
 
-                subchunk.num_indices = result.terrain.1.len() as u32;
-                if !result.terrain.0.is_empty() {
-                    let vertex_data: &[u8] = bytemuck::cast_slice(&result.terrain.0);
-                    let index_data: &[u8] = bytemuck::cast_slice(&result.terrain.1);
+            let subchunk = &mut chunk.subchunks[sy as usize];
+            let aabb = subchunk.aabb; 
 
-                    let needs_new_vertex_buffer = subchunk
-                        .vertex_buffer
-                        .as_ref()
-                        .map(|b| b.size() < vertex_data.len() as u64)
-                        .unwrap_or(true);
-                    let needs_new_index_buffer = subchunk
-                        .index_buffer
-                        .as_ref()
-                        .map(|b| b.size() < index_data.len() as u64)
-                        .unwrap_or(true);
+            
+            subchunk.num_indices = result.terrain.1.len() as u32;
+            if !result.terrain.0.is_empty() {
+                let vertex_data: &[u8] = bytemuck::cast_slice(&result.terrain.0);
+                let index_data: &[u8] = bytemuck::cast_slice(&result.terrain.1);
 
-                    if needs_new_vertex_buffer {
-                        subchunk.vertex_buffer =
-                            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Subchunk Vertex Buffer"),
-                                size: vertex_data.len() as u64,
-                                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }));
-                    }
-                    if needs_new_index_buffer {
-                        subchunk.index_buffer =
-                            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Subchunk Index Buffer"),
-                                size: index_data.len() as u64,
-                                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }));
-                    }
+                let needs_new_vertex_buffer = subchunk
+                    .vertex_buffer
+                    .as_ref()
+                    .map(|b| b.size() < vertex_data.len() as u64)
+                    .unwrap_or(true);
+                let needs_new_index_buffer = subchunk
+                    .index_buffer
+                    .as_ref()
+                    .map(|b| b.size() < index_data.len() as u64)
+                    .unwrap_or(true);
 
-                    self.queue.write_buffer(
-                        subchunk.vertex_buffer.as_ref().unwrap(),
-                        0,
-                        vertex_data,
-                    );
-                    self.queue
-                        .write_buffer(subchunk.index_buffer.as_ref().unwrap(), 0, index_data);
+                if needs_new_vertex_buffer {
+                    subchunk.vertex_buffer =
+                        Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Subchunk Vertex Buffer"),
+                            size: vertex_data.len() as u64,
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }));
+                }
+                if needs_new_index_buffer {
+                    subchunk.index_buffer =
+                        Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Subchunk Index Buffer"),
+                            size: index_data.len() as u64,
+                            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }));
                 }
 
-                subchunk.num_water_indices = result.water.1.len() as u32;
-                if !result.water.0.is_empty() {
-                    let vertex_data: &[u8] = bytemuck::cast_slice(&result.water.0);
-                    let index_data: &[u8] = bytemuck::cast_slice(&result.water.1);
-
-                    let needs_new_vertex_buffer = subchunk
-                        .water_vertex_buffer
-                        .as_ref()
-                        .map(|b| b.size() < vertex_data.len() as u64)
-                        .unwrap_or(true);
-                    let needs_new_index_buffer = subchunk
-                        .water_index_buffer
-                        .as_ref()
-                        .map(|b| b.size() < index_data.len() as u64)
-                        .unwrap_or(true);
-
-                    if needs_new_vertex_buffer {
-                        subchunk.water_vertex_buffer =
-                            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Subchunk Water Vertex Buffer"),
-                                size: vertex_data.len() as u64,
-                                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }));
-                    }
-                    if needs_new_index_buffer {
-                        subchunk.water_index_buffer =
-                            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Subchunk Water Index Buffer"),
-                                size: index_data.len() as u64,
-                                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }));
-                    }
-
-                    self.queue.write_buffer(
-                        subchunk.water_vertex_buffer.as_ref().unwrap(),
-                        0,
-                        vertex_data,
-                    );
-                    self.queue.write_buffer(
-                        subchunk.water_index_buffer.as_ref().unwrap(),
-                        0,
-                        index_data,
-                    );
-                }
-
-                subchunk.mesh_dirty = false;
-            } else {
-                return; 
+                self.queue
+                    .write_buffer(subchunk.vertex_buffer.as_ref().unwrap(), 0, vertex_data);
+                self.queue
+                    .write_buffer(subchunk.index_buffer.as_ref().unwrap(), 0, index_data);
             }
-        } 
+
+            
+            subchunk.num_water_indices = result.water.1.len() as u32;
+            if !result.water.0.is_empty() {
+                let vertex_data: &[u8] = bytemuck::cast_slice(&result.water.0);
+                let index_data: &[u8] = bytemuck::cast_slice(&result.water.1);
+
+                let needs_new_vertex_buffer = subchunk
+                    .water_vertex_buffer
+                    .as_ref()
+                    .map(|b| b.size() < vertex_data.len() as u64)
+                    .unwrap_or(true);
+                let needs_new_index_buffer = subchunk
+                    .water_index_buffer
+                    .as_ref()
+                    .map(|b| b.size() < index_data.len() as u64)
+                    .unwrap_or(true);
+
+                if needs_new_vertex_buffer {
+                    subchunk.water_vertex_buffer =
+                        Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Subchunk Water Vertex Buffer"),
+                            size: vertex_data.len() as u64,
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }));
+                }
+                if needs_new_index_buffer {
+                    subchunk.water_index_buffer =
+                        Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Subchunk Water Index Buffer"),
+                            size: index_data.len() as u64,
+                            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }));
+                }
+
+                self.queue.write_buffer(
+                    subchunk.water_vertex_buffer.as_ref().unwrap(),
+                    0,
+                    vertex_data,
+                );
+                self.queue.write_buffer(
+                    subchunk.water_index_buffer.as_ref().unwrap(),
+                    0,
+                    index_data,
+                );
+            }
+
+            subchunk.mesh_dirty = false;
+            aabb 
+        }; 
 
         
         if !result.terrain.0.is_empty() && !result.terrain.1.is_empty() {
@@ -2439,7 +2522,6 @@ impl State {
             );
         }
 
-        
         if !result.water.0.is_empty() && !result.water.1.is_empty() {
             let key = render3d::render::indirect::SubchunkKey {
                 chunk_x: cx,
@@ -2674,7 +2756,6 @@ impl State {
         );
 
         let frustum_planes = extract_frustum_planes(&view_proj);
-        let shadow_frustum = extract_frustum_planes(&sun_view_proj);
 
         let player_cx = (self.camera.position.x / CHUNK_SIZE as f32).floor() as i32;
         let player_cz = (self.camera.position.z / CHUNK_SIZE as f32).floor() as i32;
@@ -2748,16 +2829,33 @@ impl State {
 
         
         let mut meshes_to_request: Vec<(i32, i32, i32)> = Vec::with_capacity(8);
+        let mut chunks_rendered = 0u32;
+        let mut subchunks_rendered = 0u32;
 
         {
             let world = self.world.read();
             for cx in (player_cx - RENDER_DISTANCE)..=(player_cx + RENDER_DISTANCE) {
                 for cz in (player_cz - RENDER_DISTANCE)..=(player_cz + RENDER_DISTANCE) {
                     if let Some(chunk) = world.chunks.get(&(cx, cz)) {
+                        let mut chunk_has_visible = false;
                         for (sy, subchunk) in chunk.subchunks.iter().enumerate() {
-                            if subchunk.mesh_dirty && !subchunk.is_empty {
+                            if subchunk.is_empty {
+                                continue;
+                            }
+
+                            
+                            if subchunk.mesh_dirty {
                                 meshes_to_request.push((cx, cz, sy as i32));
                             }
+
+                            
+                            if subchunk.num_indices > 0 || subchunk.num_water_indices > 0 {
+                                subchunks_rendered += 1;
+                                chunk_has_visible = true;
+                            }
+                        }
+                        if chunk_has_visible {
+                            chunks_rendered += 1;
                         }
                     }
                 }
@@ -2773,17 +2871,19 @@ impl State {
         });
         meshes_to_request.truncate(max_meshes_per_frame);
 
-        for (cx, cz, sy) in meshes_to_request {
-            self.mesh_loader.request_mesh(cx, cz, sy);
-            
-            
+        for (cx, cz, sy) in &meshes_to_request {
+            self.mesh_loader.request_mesh(*cx, *cz, *sy);
+        }
+
+        
+        if !meshes_to_request.is_empty() {
             let mut world = self.world.write();
-            if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
-                chunk.subchunks[sy as usize].mesh_dirty = false;
+            for (cx, cz, sy) in &meshes_to_request {
+                if let Some(chunk) = world.chunks.get_mut(&(*cx, *cz)) {
+                    chunk.subchunks[*sy as usize].mesh_dirty = false;
+                }
             }
         }
-        let mut chunks_rendered = 0u32;
-        let mut subchunks_rendered = 0u32;
 
         let day_factor = sun_dir.y.max(0.0).min(1.0);
         let night_factor = (-sun_dir.y).max(0.0).min(1.0);
@@ -2805,31 +2905,6 @@ impl State {
             + sunset_sky.2 * sunset_factor * 0.5
             + night_sky.2 * night_factor)
             .min(1.0);
-
-        {
-            let world = self.world.read();
-            for cx in (player_cx - RENDER_DISTANCE)..=(player_cx + RENDER_DISTANCE) {
-                for cz in (player_cz - RENDER_DISTANCE)..=(player_cz + RENDER_DISTANCE) {
-                    if let Some(chunk) = world.chunks.get(&(cx, cz)) {
-                        let mut chunk_has_visible = false;
-                        for subchunk in chunk.subchunks.iter() {
-                            if subchunk.is_empty {
-                                continue;
-                            }
-
-                            
-                            if subchunk.num_indices > 0 || subchunk.num_water_indices > 0 {
-                                subchunks_rendered += 1;
-                                chunk_has_visible = true;
-                            }
-                        }
-                        if chunk_has_visible {
-                            chunks_rendered += 1;
-                        }
-                    }
-                }
-            }
-        }
 
         self.chunks_rendered = chunks_rendered;
         self.subchunks_rendered = subchunks_rendered;
@@ -2873,98 +2948,11 @@ impl State {
 
         
         {
-            let mut ssr_sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("SSR Sky Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.ssr_color_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: sky_r as f64,
-                            g: sky_g as f64,
-                            b: sky_b as f64,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.ssr_depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-
-            ssr_sky_pass.set_pipeline(&self.ssr_sky_pipeline);
-            ssr_sky_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            ssr_sky_pass.set_vertex_buffer(0, self.sun_vertex_buffer.slice(..));
-            ssr_sky_pass
-                .set_index_buffer(self.sun_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            ssr_sky_pass.draw_indexed(0..6, 0, 0..1);
-        }
-
-        
-        {
-            let mut ssr_terrain_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("SSR Terrain Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.ssr_color_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.ssr_depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-
-            ssr_terrain_pass.set_pipeline(&self.ssr_render_pipeline);
-            ssr_terrain_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-            
-            ssr_terrain_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
-            ssr_terrain_pass.set_index_buffer(
-                self.indirect_manager.index_buffer().slice(..),
-                wgpu::IndexFormat::Uint32,
-            );
-            ssr_terrain_pass.multi_draw_indexed_indirect(
-                self.indirect_manager.draw_commands(),
-                0,
-                self.indirect_manager.active_count(),
-            );
-
-            
-            
-            
-        }
-        
-        
-        
-        let resolve_target = if self.ssao_enabled {
-            &self.scene_color_view
-        } else {
-            &view
-        };
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Scene Pass"),
+            let mut opaque_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Opaque Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_texture_view,
-                    resolve_target: Some(resolve_target),
+                    resolve_target: Some(&self.ssr_color_view), 
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -2988,40 +2976,25 @@ impl State {
             });
 
             
-            render_pass.set_pipeline(&self.sky_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.sun_vertex_buffer.slice(..));
-            render_pass
+            opaque_pass.set_pipeline(&self.sky_pipeline);
+            opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            opaque_pass.set_vertex_buffer(0, self.sun_vertex_buffer.slice(..));
+            opaque_pass
                 .set_index_buffer(self.sun_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..6, 0, 0..1);
+            opaque_pass.draw_indexed(0..6, 0, 0..1);
 
             
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-            render_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
-            render_pass.set_index_buffer(
+            opaque_pass.set_pipeline(&self.render_pipeline);
+            opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            opaque_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
+            opaque_pass.set_index_buffer(
                 self.indirect_manager.index_buffer().slice(..),
                 wgpu::IndexFormat::Uint32,
             );
-            render_pass.multi_draw_indexed_indirect(
+            opaque_pass.multi_draw_indexed_indirect(
                 self.indirect_manager.draw_commands(),
                 0,
                 self.indirect_manager.active_count(),
-            );
-
-            
-            render_pass.set_pipeline(&self.water_pipeline);
-            render_pass.set_bind_group(0, &self.water_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.water_indirect_manager.vertex_buffer().slice(..));
-            render_pass.set_index_buffer(
-                self.water_indirect_manager.index_buffer().slice(..),
-                wgpu::IndexFormat::Uint32,
-            );
-            render_pass.multi_draw_indexed_indirect(
-                self.water_indirect_manager.draw_commands(),
-                0,
-                self.water_indirect_manager.active_count(),
             );
 
             
@@ -3030,21 +3003,89 @@ impl State {
                     &self.player_model_vertex_buffer,
                     &self.player_model_index_buffer,
                 ) {
-                    render_pass.set_pipeline(&self.render_pipeline);
-                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, vb.slice(..));
-                    render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.draw_indexed(0..self.player_model_num_indices, 0, 0..1);
+                    opaque_pass.set_pipeline(&self.render_pipeline);
+                    opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                    opaque_pass.set_vertex_buffer(0, vb.slice(..));
+                    opaque_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    opaque_pass.draw_indexed(0..self.player_model_num_indices, 0, 0..1);
                 }
             }
 
             
-            render_pass.set_pipeline(&self.sun_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.sun_vertex_buffer.slice(..));
-            render_pass
+            opaque_pass.set_pipeline(&self.sun_pipeline);
+            opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            opaque_pass.set_vertex_buffer(0, self.sun_vertex_buffer.slice(..));
+            opaque_pass
                 .set_index_buffer(self.sun_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..6, 0, 0..1);
+            opaque_pass.draw_indexed(0..6, 0, 0..1);
+        }
+
+        
+        {
+            let mut depth_resolve_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("SSR Depth Resolve Pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.ssr_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+
+            depth_resolve_pass.set_pipeline(&self.depth_resolve_pipeline);
+            depth_resolve_pass.set_bind_group(0, &self.depth_resolve_bind_group, &[]);
+            depth_resolve_pass.draw(0..3, 0..1);
+        }
+
+        
+        let resolve_target = if self.ssao_enabled {
+            &self.scene_color_view
+        } else {
+            &view
+        };
+
+        
+        {
+            let mut transparent_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Transparent Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.msaa_texture_view,
+                    resolve_target: Some(resolve_target), 
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+
+            
+            transparent_pass.set_pipeline(&self.water_pipeline);
+            transparent_pass.set_bind_group(0, &self.water_bind_group, &[]);
+            transparent_pass
+                .set_vertex_buffer(0, self.water_indirect_manager.vertex_buffer().slice(..));
+            transparent_pass.set_index_buffer(
+                self.water_indirect_manager.index_buffer().slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            transparent_pass.multi_draw_indexed_indirect(
+                self.water_indirect_manager.draw_commands(),
+                0,
+                self.water_indirect_manager.active_count(),
+            );
         }
 
         self.chunks_rendered = chunks_rendered;
