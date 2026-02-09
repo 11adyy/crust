@@ -110,7 +110,6 @@ pub fn create_texture_atlas_optimized(
         view_formats: &[],
     });
 
-    
     tracing::info!("Generating texture mipmaps (one-time operation)...");
     let mip_levels = generate_texture_atlas_with_mipmaps(atlas_data, atlas_width, atlas_height);
 
@@ -151,11 +150,6 @@ pub fn create_texture_atlas_optimized(
     (texture, view)
 }
 
-
-
-
-
-/// Load or generate texture atlas with caching
 pub fn load_or_generate_atlas(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -167,8 +161,6 @@ pub fn load_or_generate_atlas(
         tracing::info!("Loading texture atlas from cache...");
         match cache.load() {
             Some(cached_data) => {
-                
-                
                 match load_texture_atlas_from_file("assets/textures.png") {
                     Ok((data, width, height)) => (data, width, height),
                     Err(_) => {
@@ -206,36 +198,6 @@ pub fn load_or_generate_atlas(
 
     (texture, view, atlas_width, atlas_height)
 }
-
-
-
-
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 use parking_lot::RwLock;
