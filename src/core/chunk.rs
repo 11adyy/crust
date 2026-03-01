@@ -59,7 +59,12 @@ impl SubChunk {
         if x >= 0 && x < CHUNK_SIZE && y >= 0 && y < SUBCHUNK_HEIGHT && z >= 0 && z < CHUNK_SIZE {
             self.blocks[x as usize][y as usize][z as usize] = block;
             self.mesh_dirty = true;
-            self.is_empty = block == BlockType::Air && self.is_empty;
+            
+            
+            
+            if block != BlockType::Air {
+                self.is_empty = false;
+            }
         }
     }
 

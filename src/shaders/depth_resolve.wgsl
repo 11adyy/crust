@@ -13,11 +13,10 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     let coords = vec2<i32>(pos.xy);
     
     
-    var depth_sum = 0.0;
-    for (var i = 0; i < 4; i++) {
-        depth_sum += textureLoad(msaa_depth, coords, i);
-    }
-    let resolved_depth = depth_sum / 4.0;
     
-    return resolved_depth;
+    var min_depth = 1.0;
+    for (var i = 0; i < 4; i++) {
+        min_depth = min(min_depth, textureLoad(msaa_depth, coords, i));
+    }
+    return min_depth;
 }

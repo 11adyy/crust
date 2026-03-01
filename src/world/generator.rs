@@ -142,14 +142,31 @@ impl ChunkGenerator {
         }
 
         
+        
+        
+        
+        let mut cave_entrance_map = [[false; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
         for lx in 0..CHUNK_SIZE {
             for lz in 0..CHUNK_SIZE {
                 let world_x = base_x + lx;
                 let world_z = base_z + lz;
                 let height = height_map[lx as usize][lz as usize];
+                cave_entrance_map[lx as usize][lz as usize] =
+                    self.is_cave_entrance(world_x, world_z, height);
+            }
+        }
+
+        
+        for lx in 0..CHUNK_SIZE {
+            for lz in 0..CHUNK_SIZE {
+                let world_x = base_x + lx;
+                let world_z = base_z + lz;
+                let height = height_map[lx as usize][lz as usize];
+                
+                let is_entrance = cave_entrance_map[lx as usize][lz as usize];
 
                 for y in 1..height.min(WORLD_HEIGHT - 1) {
-                    if self.is_cave(world_x, y, world_z, height) {
+                    if self.is_cave(world_x, y, world_z, height, is_entrance) {
                         let current = chunk.get_block(lx, y, lz);
                         if current != BlockType::Water
                             && current != BlockType::Bedrock
@@ -339,7 +356,9 @@ impl ChunkGenerator {
         }
     }
 
-    fn is_cave(&self, x: i32, y: i32, z: i32, surface_height: i32) -> bool {
+    /// Cave check with pre-computed entrance flag (avoids repeated is_cave_entrance noise calls).
+    /// The `is_entrance` parameter should be pre-computed once per (x,z) column.
+    fn is_cave(&self, x: i32, y: i32, z: i32, surface_height: i32, is_entrance: bool) -> bool {
         if y <= 5 {
             return false;
         }
@@ -347,8 +366,6 @@ impl ChunkGenerator {
         let fx = x as f32;
         let fy = y as f32;
         let fz = z as f32;
-
-        let is_entrance = self.is_cave_entrance(x, z, surface_height);
 
         
         let entrance_gradient = if is_entrance {

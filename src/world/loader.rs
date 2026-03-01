@@ -126,9 +126,14 @@ impl ChunkLoader {
         self.pending.insert((cx, cz));
 
         
-        let _ = self
+        if self
             .request_tx
-            .try_send(ChunkGenRequest { cx, cz, priority });
+            .try_send(ChunkGenRequest { cx, cz, priority })
+            .is_err()
+        {
+            
+            self.pending.remove(&(cx, cz));
+        }
     }
 
     /// Request multiple chunks sorted by priority
@@ -145,11 +150,18 @@ impl ChunkLoader {
                 break; 
             }
             self.pending.insert((*cx, *cz));
-            let _ = self.request_tx.try_send(ChunkGenRequest {
-                cx: *cx,
-                cz: *cz,
-                priority: *priority,
-            });
+            if self
+                .request_tx
+                .try_send(ChunkGenRequest {
+                    cx: *cx,
+                    cz: *cz,
+                    priority: *priority,
+                })
+                .is_err()
+            {
+                
+                self.pending.remove(&(*cx, *cz));
+            }
         }
     }
 
