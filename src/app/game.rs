@@ -193,7 +193,8 @@ struct State {
     hiz_bind_groups: Vec<wgpu::BindGroup>,
     hiz_bind_group_layout: wgpu::BindGroupLayout,
     /// Next-power-of-two size derived from the render resolution (≤ 4096).
-    hiz_size: u32,
+    /// Dimensions of the Hi-Z texture (matches screen size).
+    hiz_size: [u32; 2],
 
     
     depth_resolve_pipeline: wgpu::RenderPipeline,
@@ -529,8 +530,8 @@ impl State {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
@@ -1254,7 +1255,11 @@ impl State {
                     module: &depth_resolve_shader,
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
-                    targets: &[],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::R32Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1840,23 +1845,23 @@ impl State {
         water_indirect_manager.init_shadow_resources(&device);
 
         
-        
-        
-        
-        let hiz_size = config.width.max(config.height).next_power_of_two().min(4096);
-        let hiz_mips_count = (hiz_size as f32).log2().floor() as u32 + 1;
+        let hiz_size = [config.width, config.height];
+        let hiz_max_dim = config.width.max(config.height);
+        let hiz_mips_count = (hiz_max_dim as f32).log2().floor() as u32 + 1;
         let hiz_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Hi-Z Texture"),
             size: wgpu::Extent3d {
-                width: hiz_size,
-                height: hiz_size,
+                width: hiz_size[0],
+                height: hiz_size[1],
                 depth_or_array_layers: 1,
             },
             mip_level_count: hiz_mips_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let hiz_view = hiz_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -2178,6 +2183,17 @@ impl State {
                 .ssr_depth_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
+            self.ssr_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("SSR Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                ..Default::default()
+            });
+
             
             self.water_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.water_bind_group_layout,
@@ -2392,22 +2408,25 @@ impl State {
             });
 
             
-            let new_hiz_size = new_size.width.max(new_size.height).next_power_of_two().min(4096);
+            let new_hiz_size = [new_size.width, new_size.height];
             if new_hiz_size != self.hiz_size {
                 self.hiz_size = new_hiz_size;
-                let hiz_mips_count = (new_hiz_size as f32).log2().floor() as u32 + 1;
+                let hiz_max_dim = new_size.width.max(new_size.height);
+                let hiz_mips_count = (hiz_max_dim as f32).log2().floor() as u32 + 1;
                 let hiz_texture = self.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("Hi-Z Texture"),
                     size: wgpu::Extent3d {
-                        width: new_hiz_size,
-                        height: new_hiz_size,
+                        width: new_hiz_size[0],
+                        height: new_hiz_size[1],
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: hiz_mips_count,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::R32Float,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 });
                 let new_hiz_view = hiz_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -2429,18 +2448,24 @@ impl State {
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(&new_hiz_mips[i as usize]),
+                                    resource: wgpu::BindingResource::TextureView(
+                                        &new_hiz_mips[i as usize],
+                                    ),
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(&new_hiz_mips[(i + 1) as usize]),
+                                    resource: wgpu::BindingResource::TextureView(
+                                        &new_hiz_mips[(i + 1) as usize],
+                                    ),
                                 },
                             ],
                         })
                     })
                     .collect();
-                self.indirect_manager.update_bind_group(&self.device, &new_hiz_view);
-                self.water_indirect_manager.update_bind_group(&self.device, &new_hiz_view);
+                self.indirect_manager
+                    .update_bind_group(&self.device, &new_hiz_view);
+                self.water_indirect_manager
+                    .update_bind_group(&self.device, &new_hiz_view);
                 self.hiz_texture = hiz_texture;
                 self.hiz_view = new_hiz_view;
                 self.hiz_mips = new_hiz_mips;
@@ -2481,7 +2506,6 @@ impl State {
                 subchunk_y: sy,
             };
             self.indirect_manager.upload_subchunk(
-                &self.device,
                 &self.queue,
                 key,
                 &result.terrain.0,
@@ -2497,7 +2521,6 @@ impl State {
                 subchunk_y: sy,
             };
             self.water_indirect_manager.upload_subchunk(
-                &self.device,
                 &self.queue,
                 key,
                 &result.water.0,
@@ -2527,12 +2550,10 @@ impl State {
 
             
             
-            let mut missing_chunks =
-                Vec::with_capacity(if player_chunk_moved { 64 } else { 0 });
-            if player_chunk_moved {
+            let mut missing_chunks = Vec::new();
+            if player_chunk_moved || self.chunk_loader.pending_count() < 32 {
                 for cx in (player_cx - GENERATION_DISTANCE)..=(player_cx + GENERATION_DISTANCE) {
-                    for cz in
-                        (player_cz - GENERATION_DISTANCE)..=(player_cz + GENERATION_DISTANCE)
+                    for cz in (player_cz - GENERATION_DISTANCE)..=(player_cz + GENERATION_DISTANCE)
                     {
                         if !world.chunks.contains_key(&(cx, cz))
                             && !self.chunk_loader.is_pending(cx, cz)
@@ -2580,7 +2601,8 @@ impl State {
 
         let mut requests = snapshot.missing_chunks;
         requests.sort_by_key(|&(_, _, priority)| priority);
-        for (cx, cz, priority) in requests.into_iter().take(MAX_CHUNKS_PER_FRAME) {
+        
+        for (cx, cz, priority) in requests.into_iter().take(MAX_CHUNKS_PER_FRAME * 2) {
             self.chunk_loader.request_chunk(cx, cz, priority);
         }
 
@@ -2927,33 +2949,17 @@ impl State {
         self.subchunks_rendered = subchunks_rendered;
 
         
-        {
-            let mut hiz_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Hi-Z Generation Pass"),
-                timestamp_writes: None,
-            });
-            hiz_pass.set_pipeline(&self.hiz_pipeline);
-
-            
-            for i in 0..self.hiz_bind_groups.len() {
-                hiz_pass.set_bind_group(0, &self.hiz_bind_groups[i], &[]);
-                let mip_size = (self.hiz_size >> (i + 1)).max(1);
-                let wg_count = (mip_size + 15) / 16;
-                hiz_pass.dispatch_workgroups(wg_count, wg_count, 1);
-            }
-        }
-
-        
         let frustum_planes_array = frustum_planes_to_array(&frustum_planes);
 
-        let hiz_size_f = self.hiz_size as f32;
+        let hiz_size_f = [self.hiz_size[0] as f32, self.hiz_size[1] as f32];
         self.indirect_manager.dispatch_culling(
             &mut encoder,
             &self.queue,
             &view_proj,
             &frustum_planes_array,
             self.camera.position.into(),
-            [hiz_size_f, hiz_size_f],
+            hiz_size_f,
+            [self.config.width as f32, self.config.height as f32],
         );
         self.water_indirect_manager.dispatch_culling(
             &mut encoder,
@@ -2961,7 +2967,8 @@ impl State {
             &view_proj,
             &frustum_planes_array,
             self.camera.position.into(),
-            [hiz_size_f, hiz_size_f],
+            hiz_size_f,
+            [self.config.width as f32, self.config.height as f32],
         );
 
         
@@ -3041,8 +3048,16 @@ impl State {
         
         {
             let mut depth_resolve_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("SSR Depth Resolve Pass"),
-                color_attachments: &[],
+                label: Some("Depth Resolve Pass (SSR + Hi-Z)"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.hiz_mips[0],
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE), 
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.ssr_depth_view,
                     depth_ops: Some(wgpu::Operations {
@@ -3051,12 +3066,43 @@ impl State {
                     }),
                     stencil_ops: None,
                 }),
-                ..Default::default()
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
+
+            
+            depth_resolve_pass.set_viewport(
+                0.0,
+                0.0,
+                self.config.width as f32,
+                self.config.height as f32,
+                0.0,
+                1.0,
+            );
 
             depth_resolve_pass.set_pipeline(&self.depth_resolve_pipeline);
             depth_resolve_pass.set_bind_group(0, &self.depth_resolve_bind_group, &[]);
             depth_resolve_pass.draw(0..3, 0..1);
+        }
+
+        
+        
+        
+        for i in 0..self.hiz_bind_groups.len() {
+            let mut hiz_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Hi-Z Generation Pass Level"),
+                timestamp_writes: None,
+            });
+            hiz_pass.set_pipeline(&self.hiz_pipeline);
+            hiz_pass.set_bind_group(0, &self.hiz_bind_groups[i], &[]);
+
+            
+            let div = 1 << (i + 1);
+            let mip_width = (self.hiz_size[0] / div).max(1);
+            let mip_height = (self.hiz_size[1] / div).max(1);
+
+            hiz_pass.dispatch_workgroups((mip_width + 15) / 16, (mip_height + 15) / 16, 1);
         }
 
         
