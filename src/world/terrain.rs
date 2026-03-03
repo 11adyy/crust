@@ -212,12 +212,12 @@ impl World {
             if sy > 0 && !chunk.subchunks[(sy - 1) as usize].is_fully_opaque {
                 return false;
             }
-            if sy < NUM_SUBCHUNKS as i32 - 1 && !chunk.subchunks[(sy + 1) as usize].is_fully_opaque
+            if sy < NUM_SUBCHUNKS - 1 && !chunk.subchunks[(sy + 1) as usize].is_fully_opaque
             {
                 return false;
             }
             
-            if sy == 0 || sy == NUM_SUBCHUNKS as i32 - 1 {
+            if sy == 0 || sy == NUM_SUBCHUNKS - 1 {
                 return false;
             }
 
@@ -274,15 +274,6 @@ impl World {
         let base_y = subchunk_y * SUBCHUNK_HEIGHT;
         let base_z = chunk_z * CHUNK_SIZE;
 
-        
-        
-        
-        
-        
-        
-        
-        
-        
         const PAD: usize = 1;
         const S: usize = CHUNK_SIZE as usize + PAD * 2; 
         const SH: usize = SUBCHUNK_HEIGHT as usize + PAD * 2; 
@@ -335,7 +326,6 @@ impl World {
             get_block_fast(wx - base_x, wy - base_y, wz - base_z)
         };
 
-        
         let mut biome_map: [[Option<Biome>; CHUNK_SIZE as usize]; CHUNK_SIZE as usize] =
             [[None; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
 
@@ -407,8 +397,8 @@ impl World {
                         let y_f = y as f32;
                         let z = world_z as f32;
                         let color = block.color();
-                        let tex_top = block.tex_top() as f32;
-                        let tex_side = block.tex_side() as f32;
+                        let tex_top = block.tex_top();
+                        let tex_side = block.tex_side();
                         let r = block.roughness();
                         let m = block.metallic();
 
@@ -632,7 +622,7 @@ impl World {
                                 let y_f = y as f32;
                                 let z = world_z as f32;
                                 let color = block.color();
-                                let tex = block.tex_top() as f32;
+                                let tex = block.tex_top();
                                 let r = block.roughness();
                                 let m = block.metallic();
 
