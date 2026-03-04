@@ -1,8 +1,8 @@
 /// Shadow Mapping Shader
-/// 
-/// This shader is used during the shadow pass to generate a depth map 
+///
+/// This shader is used during the shadow pass to generate a depth map
 /// from the light's (sun's) perspective.
-/// 
+///
 /// Improvements:
 /// - Wave displacement for top-facing faces (normal.y > 0.5), synced exactly
 ///   with water vertex shader. Enables accurate self-shadowing on animated
@@ -50,7 +50,7 @@ fn get_wave(idx: i32) -> WaveParams {
 fn calculate_wave_y(pos: vec3<f32>, time: f32) -> f32 {
     var y_offset: f32 = 0.0;
     let p = pos.xz;
-    
+
     
     for (var i: i32 = 0; i < 4; i++) {
         let w = get_wave(i);
@@ -70,7 +70,7 @@ fn calculate_wave_y(pos: vec3<f32>, time: f32) -> f32 {
 @vertex
 fn vs_shadow(model: VertexInput) -> @builtin(position) vec4<f32> {
     var pos = model.position;
-    
+
     
     if model.normal.y > 0.5 {
         pos.y += calculate_wave_y(pos, uniforms.time);

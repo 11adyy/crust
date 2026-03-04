@@ -97,77 +97,102 @@
 
         
         
+        
+        var any_behind = false;
+
+        
+        
         var clip = cull_uniforms.view_proj * vec4<f32>(aabb_min.x, aabb_min.y, aabb_min.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        var ndc = clip.xyz / clip.w;
-        var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_max.x, aabb_min.y, aabb_min.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_min.x, aabb_max.y, aabb_min.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_max.x, aabb_max.y, aabb_min.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_min.x, aabb_min.y, aabb_max.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_max.x, aabb_min.y, aabb_max.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_min.x, aabb_max.y, aabb_max.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
         
         clip = cull_uniforms.view_proj * vec4<f32>(aabb_max.x, aabb_max.y, aabb_max.z, 1.0);
-        if clip.w <= 0.0 { return true; }
-        ndc = clip.xyz / clip.w;
-        uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
-        min_uv = min(min_uv, uv);
-        max_uv = max(max_uv, uv);
-        min_z = min(min_z, ndc.z);
+        if clip.w <= 0.0 { any_behind = true; } else {
+            var ndc = clip.xyz / clip.w;
+            var uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
+            min_uv = min(min_uv, uv);
+            max_uv = max(max_uv, uv);
+            min_z = min(min_z, ndc.z);
+        }
 
+        
+        
+        if any_behind { return true; }
+
+        
+        
+        
+        if max_uv.x < 0.0 || min_uv.x > 1.0 || max_uv.y < 0.0 || min_uv.y > 1.0 {
+            return false;
+        }
+
+        
         
         min_uv = clamp(min_uv, vec2<f32>(0.0), vec2<f32>(1.0));
         max_uv = clamp(max_uv, vec2<f32>(0.0), vec2<f32>(1.0));
