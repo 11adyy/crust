@@ -68,7 +68,8 @@ impl ChunkLoader {
     pub fn with_worker_count(num_workers: usize, seed: u32) -> Self {
         
         let (request_tx, request_rx) = bounded::<ChunkGenRequest>(256);
-        let (result_tx, result_rx) = bounded::<ChunkGenResult>(64);
+        
+        let (result_tx, result_rx) = bounded::<ChunkGenResult>(256);
 
         
         for worker_id in 0..num_workers {
