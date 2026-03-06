@@ -473,6 +473,34 @@ impl IndirectManager {
         aabb: &AABB,
     ) -> bool {
         
+        if vertices.is_empty() || indices.is_empty() {
+            if let Some(old_alloc) = self.allocations.remove(&key) {
+                
+                if old_alloc.vertex_count > 0 {
+                    Self::add_free_block(
+                        &mut self.free_vertex_blocks,
+                        FreeBlock {
+                            offset: old_alloc.vertex_offset,
+                            count: old_alloc.vertex_count,
+                        },
+                    );
+                }
+                if old_alloc.index_count > 0 {
+                    Self::add_free_block(
+                        &mut self.free_index_blocks,
+                        FreeBlock {
+                            offset: old_alloc.index_offset,
+                            count: old_alloc.index_count,
+                        },
+                    );
+                }
+                self.free_slots.push(old_alloc.slot_index);
+                self.active_subchunk_count = self.active_subchunk_count.saturating_sub(1);
+            }
+            return true;
+        }
+
+        
         if let Some(old_alloc) = self.allocations.remove(&key) {
             
             if old_alloc.vertex_count > 0 {
@@ -496,9 +524,6 @@ impl IndirectManager {
             self.free_slots.push(old_alloc.slot_index);
         }
 
-        if vertices.is_empty() || indices.is_empty() {
-            return true; 
-        }
 
         let vertex_count = vertices.len() as u32;
         let index_count = indices.len() as u32;

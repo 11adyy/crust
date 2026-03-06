@@ -68,3 +68,14 @@ pub fn get_mesh_worker_count() -> usize {
     let cores = num_cpus::get();
     ((cores.saturating_sub(2)) / 2).max(2).min(6)
 }
+
+/// Get active cascade count based on render distance to save performance
+/// Smaller render distances don't need all 4 cascades
+pub fn get_active_cascade_count(render_distance: i32) -> usize {
+    match render_distance {
+        0..=6 => 2,   
+        7..=12 => 3,  
+        _ => 4,       
+    }
+}
+

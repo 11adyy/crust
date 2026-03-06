@@ -161,9 +161,12 @@ impl State {
         let player_cz = (self.camera.position.z / CHUNK_SIZE as f32).floor() as i32;
 
         
+        let active_cascades = render3d::get_active_cascade_count(RENDER_DISTANCE);
+
+        
         
         let mut shadow_frustum_arrays = [[[0f32; 4]; 6]; 4];
-        for i in 0..4 {
+        for i in 0..active_cascades {
             let cascade_matrix: [[f32; 4]; 4] = csm.cascades[i].view_proj.into();
             let mut shadow_uniform_data = [0f32; 64];
             shadow_uniform_data[0..16].copy_from_slice(cascade_matrix.as_flattened());
@@ -181,7 +184,7 @@ impl State {
         }
 
         
-        for i in 0..4 {
+        for i in 0..active_cascades {
             self.indirect_manager.dispatch_shadow_culling(
                 &mut encoder,
                 &self.queue,
@@ -203,7 +206,7 @@ impl State {
             "Shadow Pass Cascade 2",
             "Shadow Pass Cascade 3",
         ];
-        for i in 0..4 {
+        for i in 0..active_cascades {
             let offset = (i * 256) as u32;
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(SHADOW_PASS_LABELS[i]),
