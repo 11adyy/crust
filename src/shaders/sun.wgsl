@@ -36,7 +36,7 @@ fn vs_sun(model: VertexInput) -> VertexOutput {
 
     let sun_dir = normalize(uniforms.sun_position);
     
-    let sun_world_pos = uniforms.camera_pos + sun_dir * 450.0;
+    let sun_world_pos = uniforms.camera_pos + sun_dir * 180.0;
 
     
     let forward = -sun_dir;
@@ -48,7 +48,7 @@ fn vs_sun(model: VertexInput) -> VertexOutput {
     let up = cross(forward, right);
 
     
-    let size = 90.0;
+    let size = 220.0;
 
     let offset = right * model.position.x * size + up * model.position.y * size;
     let world_pos = sun_world_pos + offset;
