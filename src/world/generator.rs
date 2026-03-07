@@ -40,6 +40,8 @@ pub struct ChunkGenerator {
     /// Cave domain-warp noises (organic, non-repeating shapes)
     noise_cave_warp_x: FastNoiseLite,
     noise_cave_warp_z: FastNoiseLite,
+    /// Dedicated noise for surface cave entrance placement
+    noise_surface_entrance: FastNoiseLite,
     pub seed: u32,
 }
 
@@ -68,6 +70,8 @@ impl ChunkGenerator {
             
             noise_cave_warp_x: Self::create_fbm_noise(seed.wrapping_add(30), 0.018),
             noise_cave_warp_z: Self::create_fbm_noise(seed.wrapping_add(31), 0.018),
+            
+            noise_surface_entrance: Self::create_fbm_noise(seed.wrapping_add(40), 0.025),
             seed,
         }
     }
@@ -196,14 +200,138 @@ impl ChunkGenerator {
                 for y in 1..height.min(WORLD_HEIGHT - 1) {
                     if self.is_cave(world_x, y, world_z, height, is_entrance) {
                         let current = chunk.get_block(lx, y, lz);
-                        if current != BlockType::Water
-                            && current != BlockType::Bedrock
-                            && current != BlockType::Air
-                        {
-                            if y < SEA_LEVEL {
-                                chunk.set_block(lx, y, lz, BlockType::Water);
-                            } else {
-                                chunk.set_block(lx, y, lz, BlockType::Air);
+                        if current != BlockType::Bedrock && current != BlockType::Air {
+                            chunk.set_block(lx, y, lz, BlockType::Air);
+                        }
+                    }
+                }
+            }
+        }
+
+        
+        
+        
+        
+        
+        
+        for lx in 0..CHUNK_SIZE {
+            for lz in 0..CHUNK_SIZE {
+                let world_x = base_x + lx;
+                let world_z = base_z + lz;
+                let height = height_map[lx as usize][lz as usize];
+                let hash_xz = self.position_hash(world_x, world_z);
+
+                for y in 5..height.min(WORLD_HEIGHT - 2) {
+                    let current = chunk.get_block(lx, y, lz);
+                    if current != BlockType::Air {
+                        continue;
+                    }
+
+                    let below = chunk.get_block(lx, y - 1, lz);
+                    let above = chunk.get_block(lx, y + 1, lz);
+
+                    
+                    
+                    if below != BlockType::Air && below != BlockType::Water && above == BlockType::Air {
+                        let hash3 = self.position_hash_3d(world_x, y, world_z);
+
+                        
+                        if matches!(below, BlockType::Stone | BlockType::Dirt | BlockType::Gravel) {
+                            if hash3 % 100 < 15 {
+                                chunk.set_block(lx, y - 1, lz, BlockType::Gravel);
+                            }
+                            
+                            else if y >= 35 && y <= 55 && hash3 % 100 < 8 {
+                                chunk.set_block(lx, y - 1, lz, BlockType::Clay);
+                            }
+                        }
+
+                        
+                        if below == BlockType::Stone && hash_xz % 100 < 8 && y >= 8 {
+                            let stalagmite_h = 1 + (hash3 % 3) as i32; 
+                            for dy in 0..stalagmite_h {
+                                let ny = y + dy;
+                                if ny < WORLD_HEIGHT && chunk.get_block(lx, ny, lz) == BlockType::Air {
+                                    chunk.set_block(lx, ny, lz, BlockType::Stone);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    
+                    
+                    if above != BlockType::Air && above != BlockType::Water && below == BlockType::Air {
+                        let hash3 = self.position_hash_3d(world_x, y, world_z);
+
+                        
+                        if above == BlockType::Stone && hash_xz.wrapping_add(7) % 100 < 6 {
+                            let stalactite_h = 1 + (hash3 % 2) as i32; 
+                            for dy in 0..stalactite_h {
+                                let ny = y - dy;
+                                if ny > 4 && chunk.get_block(lx, ny, lz) == BlockType::Air {
+                                    chunk.set_block(lx, ny, lz, BlockType::Stone);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        
+        
+        for lx in 1..(CHUNK_SIZE - 1) {
+            for lz in 1..(CHUNK_SIZE - 1) {
+                let world_x = base_x + lx;
+                let world_z = base_z + lz;
+                let biome = biome_map[lx as usize][lz as usize];
+                let height = height_map[lx as usize][lz as usize];
+
+                
+                if matches!(biome, Biome::Ocean | Biome::River | Biome::Lake | Biome::Beach)
+                    || height <= SEA_LEVEL + 3
+                {
+                    continue;
+                }
+
+                if !self.is_surface_cave_entrance(world_x, world_z, height) {
+                    continue;
+                }
+
+                
+                let hash = self.position_hash(world_x, world_z);
+                let shaft_radius: i32 = if hash % 3 == 0 { 2 } else { 1 };
+
+                
+                
+                let max_shaft_depth = 24;
+                let shaft_start = height - 1; 
+                let shaft_end = (shaft_start - max_shaft_depth).max(SEA_LEVEL + 1);
+
+                'shaft: for y in (shaft_end..=shaft_start).rev() {
+                    for dx in -shaft_radius..=shaft_radius {
+                        for dz in -shaft_radius..=shaft_radius {
+                            
+                            if dx * dx + dz * dz > shaft_radius * shaft_radius + shaft_radius {
+                                continue;
+                            }
+                            let nx = lx + dx;
+                            let nz = lz + dz;
+                            if nx < 0 || nx >= CHUNK_SIZE || nz < 0 || nz >= CHUNK_SIZE {
+                                continue;
+                            }
+                            let current = chunk.get_block(nx, y, nz);
+                            
+                            
+                            if current == BlockType::Air && y < shaft_start - 3 {
+                                break 'shaft;
+                            }
+                            if current != BlockType::Bedrock && current != BlockType::Air {
+                                chunk.set_block(nx, y, nz, BlockType::Air);
                             }
                         }
                     }
@@ -421,32 +549,23 @@ impl ChunkGenerator {
 
     /// Cave check with pre-computed entrance flag.
     ///
-    /// Uses smooth distance-based metrics instead of hard thresholds to produce
-    /// rounded, organic caverns without jagged edges:
-    ///
-    ///  - **Cheese caves**: treat two noise fields as XZ/XY pseudodistances and
-    ///    carve when their *product* exceeds a threshold — gives smooth ellipsoidal
-    ///    chambers.
-    ///  - **Spaghetti tunnels**: treat (n1, n2) as a 2-D displacement from a
-    ///    virtual tunnel axis; carve when `sqrt(n1²+n2²) < radius` — produces
-    ///    circular cross-sections.
-    ///  - **Domain warping**: offset the sample coordinates with a separate FBm
-    ///    noise before querying cave noises — prevents grid-aligned repetition and
-    ///    adds natural meanders.
-    ///  - **Depth gradient**: deterministic smooth falloff near the surface instead
-    ///    of per-voxel random jitter.
+    /// Minecraft-like cave generation:
+    ///  - **Cheese caves** (y < 50): large, rounded open chambers with flat floors
+    ///  - **Spaghetti tunnels**: narrow ~2-3 block tall winding passages (main cave type)
+    ///  - **Noodle tunnels**: very thin 1-block-wide passages connecting areas
+    ///  - Vertical squash on all cave types for flat, walkable floors
+    ///  - Caves are most common y=5..=54, sparser above
     fn is_cave(&self, x: i32, y: i32, z: i32, surface_height: i32, is_entrance: bool) -> bool {
-        if y <= 5 {
+        if y <= 4 {
             return false;
         }
 
         
         let min_surface_dist = if is_entrance {
-            
-            let t = ((surface_height - y) as f32 / 8.0).clamp(0.0, 1.0);
-            (3.0 + t * 4.0) as i32
+            let t = ((surface_height - y) as f32 / 10.0).clamp(0.0, 1.0);
+            (4.0 + t * 4.0) as i32
         } else {
-            7
+            8
         };
         if y >= surface_height - min_surface_dist {
             return false;
@@ -458,61 +577,69 @@ impl ChunkGenerator {
 
         
         
-        let warp_amp = 20.0_f32;
-        let wx = fx + self.noise_cave_warp_x.get_noise_3d(fx * 0.022, fy * 0.014, fz * 0.022) * warp_amp;
-        let wy = fy + self.noise_cave_warp_z.get_noise_3d(fx * 0.022 + 100.0, fy * 0.014, fz * 0.022 + 100.0) * warp_amp * 0.4;
-        let wz = fz + self.noise_cave_warp_x.get_noise_3d(fx * 0.022 + 200.0, fy * 0.014, fz * 0.022 + 200.0) * warp_amp;
-
+        let warp_amp = 12.0_f32;
+        let wx = fx + self.noise_cave_warp_x.get_noise_3d(fx * 0.018, fy * 0.010, fz * 0.018) * warp_amp;
         
-        
-        let depth_factor = if y < 15 {
-            1.0_f32
-        } else if y < 40 {
-            1.0 - (y as f32 - 15.0) / 60.0   
-        } else {
-            0.58 - (y as f32 - 40.0) / 180.0  
-        }.max(0.25);
-
-        
-        
-        
-        
-        let c1 = self.noise_cave1.get_noise_3d(wx * 0.038, wy * 0.016, wz * 0.038);
-        let c2 = self.noise_cave2.get_noise_3d(wx * 0.028 + 400.0, wy * 0.013 + 400.0, wz * 0.028 + 400.0);
-
-        
-        
-        
-        let cheese_product = c1.max(0.0) * c2.max(0.0);
-        
-        let cheese_threshold = 0.18 * (1.0 - depth_factor * 0.25);
-        let is_cheese = cheese_product > cheese_threshold;
+        let wy = fy + self.noise_cave_warp_z.get_noise_3d(fx * 0.018 + 100.0, fy * 0.010, fz * 0.018 + 100.0) * warp_amp * 0.15;
+        let wz = fz + self.noise_cave_warp_x.get_noise_3d(fx * 0.018 + 200.0, fy * 0.010, fz * 0.018 + 200.0) * warp_amp;
 
         
         
         
         
         
-        
-        
-        
-        let s1 = self.noise_cave1.get_noise_3d(wx * 0.065 + 500.0, wy * 0.055, wz * 0.065);
-        let s2 = self.noise_cave3.get_noise_3d(wx * 0.065 + 900.0, wy * 0.055, wz * 0.065);
-        let tunnel_dist = (s1 * s1 + s2 * s2).sqrt();
-        
-        let spag_radius = (0.09 + depth_factor * 0.04).min(0.14);
-        let is_spaghetti = tunnel_dist < spag_radius;
+        let in_lower  = y < 54;
+        let in_middle = y >= 54 && y < 90;
 
         
         
         
-        let w1 = self.noise_cave2.get_noise_3d(wx * 0.040 + 800.0, wy * 0.032, wz * 0.040);
-        let w2 = self.noise_cave3.get_noise_3d(wx * 0.040 + 1200.0, wy * 0.032, wz * 0.040);
-        let worm_dist = (w1 * w1 + w2 * w2).sqrt();
-        let worm_radius = (0.06 + depth_factor * 0.03).min(0.10);
-        let is_worm = worm_dist < worm_radius && y < 55;
+        if in_lower {
+            let c1 = self.noise_cave1.get_noise_3d(wx * 0.030, wy * 0.010, wz * 0.030);
+            let c2 = self.noise_cave2.get_noise_3d(wx * 0.022 + 400.0, wy * 0.008 + 400.0, wz * 0.022 + 400.0);
+            
+            
+            let cheese_product = c1.max(0.0) * c2.max(0.0);
+            if cheese_product > 0.20 {
+                return true;
+            }
+        }
 
-        is_cheese || is_spaghetti || is_worm
+        
+        
+        
+        let s1 = self.noise_cave1.get_noise_3d(wx * 0.060 + 500.0, wy * 0.025, wz * 0.060);
+        let s2 = self.noise_cave3.get_noise_3d(wx * 0.060 + 900.0, wy * 0.025, wz * 0.060);
+        let spag_dist = (s1 * s1 + s2 * s2).sqrt();
+        
+        let spag_radius = if in_lower { 0.13 } else if in_middle { 0.10 } else { 0.07 };
+        if spag_dist < spag_radius {
+            return true;
+        }
+
+        
+        
+        if y > 20 {
+            let n1 = self.noise_cave2.get_noise_3d(wx * 0.090 + 800.0, wy * 0.040, wz * 0.090);
+            let n2 = self.noise_cave3.get_noise_3d(wx * 0.090 + 1200.0, wy * 0.040, wz * 0.090);
+            let noodle_dist = (n1 * n1 + n2 * n2).sqrt();
+            let noodle_radius = if in_lower { 0.075 } else { 0.055 };
+            if noodle_dist < noodle_radius {
+                return true;
+            }
+        }
+
+        
+        if y < 30 {
+            let w1 = self.noise_cave2.get_noise_3d(wx * 0.042 + 800.0, wy * 0.015, wz * 0.042);
+            let w2 = self.noise_cave3.get_noise_3d(wx * 0.042 + 1200.0, wy * 0.015, wz * 0.042);
+            let worm_dist = (w1 * w1 + w2 * w2).sqrt();
+            if worm_dist < 0.11 {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn is_cave_entrance(&self, x: i32, z: i32, surface_height: i32) -> bool {
@@ -546,6 +673,59 @@ impl ChunkGenerator {
             let c1 = self.noise_cave1.get_noise_3d(fx * 0.045, fy * 0.022, fz * 0.045);
             let c2 = self.noise_cave2.get_noise_3d(fx * 0.032, fy * 0.018, fz * 0.032);
             if c1 > 0.62 && c2 > 0.62 {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Determines whether a surface-level cave entrance (open pit / shaft) should
+    /// be placed at the given (x, z) column.
+    ///
+    /// These are different from `is_cave_entrance` (which controls the
+    /// underground cave-connection logic) — they carve a visible hole on the
+    /// ground that leads directly into the cave system below.
+    ///
+    /// Criteria:
+    ///  - Column must be above sea level (no underwater entrances).
+    ///  - High-pass FBm threshold keeps them sparse (~1 per 200-400 blocks).
+    ///  - position_hash gives deterministic pseudo-random thinning.
+    ///  - Must have an actual cave cavity within 22 blocks below the surface.
+    fn is_surface_cave_entrance(&self, x: i32, z: i32, surface_height: i32) -> bool {
+        if surface_height <= SEA_LEVEL + 3 {
+            return false;
+        }
+
+        let fx = x as f32;
+        let fz = z as f32;
+
+        
+        let ent_noise = self
+            .noise_surface_entrance
+            .get_noise_2d(fx * 0.025, fz * 0.025);
+        if ent_noise < 0.72 {
+            return false;
+        }
+
+        
+        let hash = self.position_hash(x, z);
+        if hash % 8 != 0 {
+            return false;
+        }
+
+        
+        for check_y in (surface_height - 22).max(8)..=(surface_height - 5) {
+            let fy = check_y as f32;
+            let c1 = self.noise_cave1.get_noise_3d(fx * 0.045, fy * 0.022, fz * 0.045);
+            let c2 = self.noise_cave2.get_noise_3d(fx * 0.032, fy * 0.018, fz * 0.032);
+            if c1 > 0.55 && c2 > 0.55 {
+                return true;
+            }
+            
+            let s1 = self.noise_cave1.get_noise_3d(fx * 0.065 + 500.0, fy * 0.055, fz * 0.065);
+            let s2 = self.noise_cave3.get_noise_3d(fx * 0.065 + 900.0, fy * 0.055, fz * 0.065);
+            if (s1 * s1 + s2 * s2).sqrt() < 0.11 {
                 return true;
             }
         }

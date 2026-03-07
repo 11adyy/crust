@@ -422,6 +422,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(in.world_pos - uniforms.camera_pos);
 
     
+    
+    
+    let view_dir_horiz_raw = vec3<f32>(view_dir.x, 0.0, view_dir.z);
+    let view_dir_horiz = select(
+        normalize(view_dir_horiz_raw),
+        view_dir,
+        length(view_dir_horiz_raw) < 0.0001
+    );
+
+    
 
     
     let day_factor = clamp(sun_dir.y, 0.0, 1.0);
@@ -431,7 +441,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let twilight_factor = smoothstep(-0.1, 0.15, sun_dir.y) * smoothstep(0.4, 0.0, sun_dir.y);
 
     
-    let sky_color = calculate_sky_color(view_dir, sun_dir);
+    
+    
+    
+    let sky_color = calculate_sky_color(view_dir_horiz, sun_dir);
 
     
     var shadow = 1.0;
