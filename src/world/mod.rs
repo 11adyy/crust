@@ -1,11 +1,8 @@
-//! World generation and management modules
-//! Contains chunk generation, loading, and world state.
-
 pub mod generator;
 pub mod loader;
+mod spline;
 pub mod structures;
 pub mod terrain;
-mod spline;
 
 
 pub use generator::ChunkGenerator;

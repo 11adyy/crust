@@ -37,7 +37,7 @@ impl MeshLoader {
 
             thread::Builder::new()
                 .name(format!("mesh-worker-{}", i))
-                .spawn(move || {    
+                .spawn(move || {
                     while let Ok(req) = rx.recv() {
                         let meshes = {
                             let world_read = world.read();
@@ -71,7 +71,7 @@ impl MeshLoader {
     pub fn request_mesh(&mut self, cx: i32, cz: i32, sy: i32) {
         let key = (cx, cz, sy);
         if self.pending.contains(&key) {
-            return; 
+            return;
         }
         match self.request_tx.try_send(MeshRequest { cx, cz, sy }) {
             Ok(_) => {
@@ -93,7 +93,6 @@ impl MeshLoader {
         }
     }
 
-    /// Returns true if this subchunk is already queued for mesh building.
     pub fn is_pending(&self, cx: i32, cz: i32, sy: i32) -> bool {
         self.pending.contains(&(cx, cz, sy))
     }

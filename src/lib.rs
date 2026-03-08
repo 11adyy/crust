@@ -1,18 +1,12 @@
-
 pub mod core;
-
 
 pub mod player;
 
-
 pub mod render;
-
 
 pub mod render_core;
 
-
 pub mod world;
-
 
 pub mod biome {
     pub use crate::core::biome::*;
@@ -30,14 +24,12 @@ pub mod vertex {
     pub use crate::core::vertex::*;
 }
 
-
 pub mod camera {
     pub use crate::player::camera::*;
 }
 pub mod input {
     pub use crate::player::input::*;
 }
-
 
 pub mod frustum {
     pub use crate::render::frustum::*;
@@ -52,7 +44,6 @@ pub mod mesh_loader {
     pub use crate::render::mesh_loader::*;
 }
 
-
 pub mod chunk_generator {
     pub use crate::world::generator::*;
 }
@@ -60,13 +51,12 @@ pub mod chunk_loader {
     pub use crate::world::loader::*;
 }
 
-
 pub mod constants;
 pub mod save;
 
 
 pub use constants::*;
-pub use constants::{get_chunk_worker_count, get_mesh_worker_count, get_active_cascade_count};
+pub use constants::{get_active_cascade_count, get_chunk_worker_count, get_mesh_worker_count};
 pub use core::{Biome, BlockType, Chunk, SubChunk, Uniforms, Vertex};
 pub use player::{Camera, DiggingState, InputState};
 pub use render::{

@@ -92,7 +92,6 @@ pub fn extract_frustum_planes(view_proj: &Matrix4<f32>) -> [Vector4<f32>; 6] {
         ),
     ];
 
-    
     for plane in &mut planes {
         let length = (plane.x * plane.x + plane.y * plane.y + plane.z * plane.z).sqrt();
         plane.x /= length;

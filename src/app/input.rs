@@ -18,12 +18,10 @@ impl State {
         if button == MouseButton::Right && pressed {
             let target = self.camera.raycast(&*self.world.read(), 5.0);
             if let Some((_, _, _, px, py, pz)) = target {
-                
                 if self.camera.intersects_block(px, py, pz) {
                     return;
                 }
 
-                
                 for player in self.remote_players.values() {
                     let player_pos = cgmath::Point3::new(player.x, player.y, player.z);
                     if check_intersection(player_pos, px, py, pz) {
@@ -50,4 +48,3 @@ impl State {
         );
     }
 }
-

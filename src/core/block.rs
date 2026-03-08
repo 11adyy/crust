@@ -83,36 +83,25 @@ impl BlockType {
     }
 
     pub fn should_render_face_against(&self, neighbor: BlockType) -> bool {
-        
         if neighbor == BlockType::Air {
             return true;
         }
-
-        
-        
-        
         if *self == BlockType::Water {
             return false;
         }
 
-        
         if neighbor == BlockType::Water {
             return true;
         }
 
-        
         if *self == BlockType::Leaves && neighbor == BlockType::Leaves {
             return true;
         }
 
-        
-        
-        
         if neighbor == BlockType::WoodStairs {
             return true;
         }
 
-        
         neighbor.is_transparent()
     }
 
@@ -170,7 +159,7 @@ impl BlockType {
         match self {
             BlockType::Grass => TEX_DIRT,
             BlockType::Wood => TEX_WOOD_TOP,
-            BlockType::WoodStairs => TEX_WOOD_TOP, 
+            BlockType::WoodStairs => TEX_WOOD_TOP,
             _ => self.tex_top(),
         }
     }

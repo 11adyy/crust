@@ -1,16 +1,3 @@
-/// Shadow Mapping Shader
-///
-/// This shader is used during the shadow pass to generate a depth map
-/// from the light's (sun's) perspective.
-///
-/// Improvements:
-/// - Wave displacement for top-facing faces (normal.y > 0.5), synced exactly
-///   with water vertex shader. Enables accurate self-shadowing on animated
-///   water surfaces without artifacts.
-/// - Consistent with water rendering: same wave parameters, time-driven,
-///   and y-offset to prevent z-fighting.
-/// - No fragment shader needed (depth-only pass).
-
 struct ShadowUniforms {
     cascade_view_proj: mat4x4<f32>,
     time: f32,
@@ -26,7 +13,6 @@ struct VertexInput {
     @location(3) uv: vec2<f32>,
     @location(4) tex_index: f32,
 };
-
 
 struct WaveParams {
     wavelength: f32,
@@ -46,12 +32,10 @@ fn get_wave(idx: i32) -> WaveParams {
     }
 }
 
-/// Calculate wave displacement for shadow pass (Y only)
 fn calculate_wave_y(pos: vec3<f32>, time: f32) -> f32 {
     var y_offset: f32 = 0.0;
     let p = pos.xz;
 
-    
     for (var i: i32 = 0; i < 4; i++) {
         let w = get_wave(i);
         let k = 2.0 * 3.14159265359 / w.wavelength;
@@ -63,15 +47,10 @@ fn calculate_wave_y(pos: vec3<f32>, time: f32) -> f32 {
     return y_offset;
 }
 
-/// Shadow Vertex Shader
-///
-/// Transforms the vertex position into the sun's coordinate space.
-/// Applies identical wave displacement as water VS for top-facing water surfaces.
 @vertex
 fn vs_shadow(model: VertexInput) -> @builtin(position) vec4<f32> {
     var pos = model.position;
 
-    
     if model.normal.y > 0.5 {
         pos.y += calculate_wave_y(pos, uniforms.time);
         pos.y -= 0.15;

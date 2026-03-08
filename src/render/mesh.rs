@@ -54,8 +54,6 @@ pub fn add_quad(
     ]);
 }
 
-/// Add a quad with tiled UVs for greedy meshing
-/// width and height specify how many blocks the quad spans for UV tiling
 pub fn add_greedy_quad(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
@@ -118,8 +116,6 @@ pub fn build_crosshair() -> (Vec<Vertex>, Vec<u32>) {
     let packed_color = Vertex::pack_color([1.0, 1.0, 1.0]);
     let packed_normal = Vertex::pack_normal([0.0, 0.0, 1.0]);
 
-    
-    
     let aspect = 16.0 / 9.0;
     let size_x = size / aspect;
     let thickness_x = thickness / aspect;
@@ -127,7 +123,6 @@ pub fn build_crosshair() -> (Vec<Vertex>, Vec<u32>) {
     let mut vertices = Vec::with_capacity(24);
     let mut indices = Vec::with_capacity(36);
 
-    
     vertices.push(Vertex {
         position: [-size_x, -thickness, 0.0],
         normal: packed_normal,
@@ -157,7 +152,6 @@ pub fn build_crosshair() -> (Vec<Vertex>, Vec<u32>) {
         tex_index: 0.0,
     });
     indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
-    
     vertices.push(Vertex {
         position: [-thickness_x, -size, 0.0],
         normal: packed_normal,
@@ -191,8 +185,6 @@ pub fn build_crosshair() -> (Vec<Vertex>, Vec<u32>) {
     (vertices, indices)
 }
 
-/// Build a simple Minecraft-style player model (head, body, arms, legs)
-/// Position (x, y, z) is at the player's feet, yaw is the horizontal rotation in radians
 pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec<u32>) {
     let mut vertices = Vec::with_capacity(2000);
     let mut indices = Vec::with_capacity(1000);
@@ -200,12 +192,10 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
     let cos_yaw = yaw.cos();
     let sin_yaw = yaw.sin();
 
-    
     let rotate = |dx: f32, dz: f32| -> (f32, f32) {
         (dx * cos_yaw - dz * sin_yaw, dx * sin_yaw + dz * cos_yaw)
     };
 
-    
     let add_box = |vertices: &mut Vec<Vertex>,
                    indices: &mut Vec<u32>,
                    cx: f32, 
@@ -215,7 +205,6 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
                    hh: f32, 
                    hd: f32, 
                    color: [f32; 3]| {
-        
         let corners = [
             (-hw, -hh, -hd),
             (hw, -hh, -hd),
@@ -227,7 +216,6 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
             (-hw, hh, hd),
         ];
 
-        
         let transformed: Vec<[f32; 3]> = corners
             .iter()
             .map(|&(dx, dy, dz)| {
@@ -236,7 +224,6 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
             })
             .collect();
 
-        
         let faces = [
             
             ([4, 5, 6, 7], [0.0, 0.0, 1.0]),
@@ -262,7 +249,7 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
                     normal: packed_normal,
                     color: packed_color,
                     uv: [0.0, 0.0],
-                    tex_index: -1.0, 
+                    tex_index: -1.0,
                 });
             }
             indices.extend_from_slice(&[
@@ -276,7 +263,6 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
         }
     };
 
-    
     let skin_color = [0.9, 0.75, 0.6]; 
     let shirt_color = [0.2, 0.5, 0.9]; 
     let pants_color = [0.3, 0.25, 0.2]; 

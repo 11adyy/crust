@@ -1,6 +1,3 @@
-//! Rendering-related modules
-//! Contains mesh building, frustum culling, texture generation, mesh loading, and indirect drawing.
-
 pub mod frustum;
 pub mod indirect;
 pub mod mesh;
@@ -8,7 +5,6 @@ pub mod mesh_loader;
 pub mod texture;
 
 pub mod atlas_map;
-
 
 pub use frustum::{AABB, extract_frustum_planes};
 pub use indirect::{DrawIndexedIndirect, IndirectManager, SubchunkKey};
