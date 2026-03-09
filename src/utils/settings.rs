@@ -80,10 +80,10 @@ impl Default for GraphicsSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ShadowSettings {
     pub enabled: bool,
-    pub resolution: u32, 
-    pub cascades: u32,   
+    pub resolution: u32,
+    pub cascades: u32,
     pub distance: f32,
-    pub quality: ShadowQuality, 
+    pub quality: ShadowQuality,
 }
 
 impl Default for ShadowSettings {
