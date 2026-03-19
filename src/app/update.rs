@@ -11,6 +11,12 @@ use crate::ui;
 use super::state::{State, WorldSnapshot, WorldWriteOps};
 
 impl State {
+    /// Rebuilds the on-screen coordinate HUD if the camera has moved since the
+    /// last update.
+    ///
+    /// When the player position changes, new vertex and index buffers are
+    /// generated and stored on `self` so the next render pass picks them up.
+    /// Does nothing if the position is unchanged.
     pub fn update_coords_ui(&mut self) {
         if let Some((vb, ib, num_indices)) = ui::ui::update_coords_ui(
             &self.device,
@@ -23,16 +29,31 @@ impl State {
         }
     }
 
+    /// Applies a completed mesh result to the GPU indirect draw buffers.
+    ///
+    /// Called after a background mesh worker finishes building a subchunk.
+    /// The method:
+    /// 1. Updates the subchunk's index counts and clears its `mesh_dirty` flag
+    ///    under a brief write lock.
+    /// 2. Uploads the terrain and water meshes to the respective
+    ///    `IndirectManager` instances.
+    /// 3. If either upload fails (buffer full), marks the subchunk dirty again
+    ///    so it will be retried on the next frame.
+    ///
+    /// Does nothing if the parent chunk has been unloaded since the mesh was
+    /// requested.
     pub fn update_subchunk_mesh(&mut self, result: crust::mesh_loader::MeshResult) {
         let cx = result.cx;
         let cz = result.cz;
         let sy = result.sy;
 
+        
+        
         let aabb_copy = {
             let mut world = self.world.write();
             let chunk = match world.chunks.get_mut(&(cx, cz)) {
                 Some(chunk) => chunk,
-                None => return,
+                None => return, 
             };
             let subchunk = &mut chunk.subchunks[sy as usize];
             let aabb = subchunk.aabb;
@@ -64,6 +85,8 @@ impl State {
             &aabb_copy,
         );
 
+        
+        
         if !terrain_uploaded || !water_uploaded {
             let mut world = self.world.write();
             if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
@@ -72,12 +95,38 @@ impl State {
         }
     }
 
+    /// Main per-frame update: advances physics, processes input, loads chunks,
+    /// builds meshes, and applies world mutations.
+    ///
+    /// This method coordinates all frame-rate-dependent logic in a deliberate
+    /// order to minimize the time the world write-lock is held:
+    ///
+    /// 1. **Network** – flush incoming packets and send position updates.
+    /// 2. **Delta time** – compute `dt`, clamped to 100 ms to survive hitches.
+    /// 3. **Chunk streaming** – poll completed chunk generation results and
+    ///    determine which chunks are still missing within `GENERATION_DISTANCE`.
+    /// 4. **Read-locked snapshot** – run camera physics and collect all
+    ///    read-only world queries (raycast, eye-block check) in one pass to
+    ///    avoid repeated lock acquisitions.
+    /// 5. **Chunk requests** – sort missing chunks by squared distance and
+    ///    submit up to `MAX_CHUNKS_PER_FRAME * 2` requests to the loader.
+    /// 6. **Digging** – accumulate break progress for the targeted block.
+    /// 7. **World write** – insert newly generated chunks, break blocks, and
+    ///    evict out-of-range chunks (all in a single write-lock window).
+    /// 8. **Mesh uploads** – drain up to `MAX_MESH_BUILDS_PER_FRAME` completed
+    ///    mesh results from the background workers.
     pub fn update(&mut self) {
+        
         self.update_network_state();
+
+        
         let now = Instant::now();
+        
+        
         let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.1);
         self.last_frame = now;
 
+        
         let completed_chunks = self.chunk_loader.poll_results(MAX_CHUNKS_PER_FRAME);
 
         let player_cx = (self.camera.position.x / CHUNK_SIZE as f32).floor() as i32;
@@ -85,11 +134,15 @@ impl State {
         let player_chunk_moved =
             player_cx != self.last_gen_player_cx || player_cz != self.last_gen_player_cz;
 
+        
+        
+        
         let snapshot = {
             let world = self.world.read();
 
             self.camera.update(&*world, dt, &self.input);
 
+            
             let mut missing_chunks = Vec::new();
             if player_chunk_moved || self.chunk_loader.pending_count() < 32 {
                 for cx in (player_cx - GENERATION_DISTANCE)..=(player_cx + GENERATION_DISTANCE) {
@@ -98,6 +151,8 @@ impl State {
                         if !world.chunks.contains_key(&(cx, cz))
                             && !self.chunk_loader.is_pending(cx, cz)
                         {
+                            
+                            
                             let dx = cx - player_cx;
                             let dz = cz - player_cz;
                             let priority = dx * dx + dz * dz;
@@ -107,6 +162,8 @@ impl State {
                 }
             }
 
+            
+            
             let (raycast_result, target_block) =
                 if self.mouse_captured && (self.input.left_mouse || self.input.right_mouse) {
                     let raycast = self.camera.raycast(&*world, 5.0);
@@ -120,6 +177,8 @@ impl State {
                     (None, None)
                 };
 
+            
+            
             let eye_pos = self.camera.eye_position();
             let eye_block = world.get_block(
                 eye_pos.x.floor() as i32,
@@ -133,19 +192,24 @@ impl State {
                 target_block,
                 eye_block,
             }
-        };
+        }; 
 
+        
         if player_chunk_moved {
             self.last_gen_player_cx = player_cx;
             self.last_gen_player_cz = player_cz;
         }
 
+        
+        
+        
         let mut requests = snapshot.missing_chunks;
         requests.sort_by_key(|&(_, _, priority)| priority);
         for (cx, cz, priority) in requests.into_iter().take(MAX_CHUNKS_PER_FRAME * 2) {
             self.chunk_loader.request_chunk(cx, cz, priority);
         }
 
+        
         let mut write_ops = WorldWriteOps {
             completed_chunks: completed_chunks
                 .into_iter()
@@ -163,14 +227,17 @@ impl State {
 
                     if break_time.is_finite() && break_time > 0.0 {
                         if self.digging.target == Some(target) {
+                            
                             self.digging.progress += dt;
                             if self.digging.progress >= break_time {
+                                
                                 write_ops.block_break = Some((bx, by, bz));
                                 write_ops.mark_dirty.push((bx, by, bz));
                                 self.digging.target = None;
                                 self.digging.progress = 0.0;
                             }
                         } else {
+                            
                             self.digging.target = Some(target);
                             self.digging.progress = 0.0;
                             self.digging.break_time = break_time;
@@ -178,34 +245,50 @@ impl State {
                     }
                 }
             } else {
+                
                 self.digging.target = None;
                 self.digging.progress = 0.0;
             }
         } else {
+            
             self.digging.target = None;
             self.digging.progress = 0.0;
         }
 
+        
+        
+        
         if !write_ops.completed_chunks.is_empty()
             || write_ops.block_break.is_some()
             || !write_ops.mark_dirty.is_empty()
         {
             let mut world = self.world.write();
+
             for (cx, cz, chunk) in write_ops.completed_chunks {
                 world.chunks.insert((cx, cz), chunk);
             }
+
             if let Some((bx, by, bz)) = write_ops.block_break {
                 world.set_block_player(bx, by, bz, BlockType::Air);
             }
+
+            
+            
             let removed_chunks =
                 world.update_chunks_around_player(self.camera.position.x, self.camera.position.z);
-            drop(world);
+
+            drop(world); 
+
             self.remove_chunk_gpu_data(&removed_chunks);
         }
+
+        
+        
         for (bx, by, bz) in write_ops.mark_dirty {
             self.mark_chunk_dirty(bx, by, bz);
         }
 
+        
         self.is_underwater = if snapshot.eye_block == BlockType::Water {
             1.0
         } else {
@@ -214,8 +297,10 @@ impl State {
 
         self.update_coords_ui();
 
-        let max_mesh_updates = MAX_MESH_BUILDS_PER_FRAME;
-        for _ in 0..max_mesh_updates {
+        
+        
+        
+        for _ in 0..MAX_MESH_BUILDS_PER_FRAME {
             if let Some(result) = self.mesh_loader.poll_result() {
                 self.update_subchunk_mesh(result);
             } else {
@@ -224,6 +309,11 @@ impl State {
         }
     }
 
+    /// Removes all GPU terrain and water mesh data for the given chunk columns.
+    ///
+    /// Iterates over every subchunk slot in each column and calls
+    /// `remove_subchunk` on both indirect managers, zeroing the corresponding
+    /// metadata slots so the GPU culling pass stops issuing draw calls for them.
     fn remove_chunk_gpu_data(&mut self, removed_chunks: &[(i32, i32)]) {
         for &(cx, cz) in removed_chunks {
             for sy in 0..NUM_SUBCHUNKS {
@@ -233,12 +323,23 @@ impl State {
                     subchunk_y: sy,
                 };
                 self.indirect_manager.remove_subchunk(&self.queue, key);
-                self.water_indirect_manager
-                    .remove_subchunk(&self.queue, key);
+                self.water_indirect_manager.remove_subchunk(&self.queue, key);
             }
         }
     }
 
+    /// Marks the subchunk containing block `(x, y, z)` and all six of its
+    /// face-adjacent neighbors as dirty so their meshes are rebuilt.
+    ///
+    /// Neighbor dirtying is needed because a block on a chunk or subchunk
+    /// boundary affects the visible faces of the adjacent chunk/subchunk.
+    /// The six directions checked are:
+    /// - **±X**: the chunk columns to the west and east.
+    /// - **±Z**: the chunk columns to the north and south.
+    /// - **±Y**: the subchunks directly below and above within the same column.
+    ///
+    /// Checks are bounds-guarded; out-of-range subchunk indices or absent
+    /// chunks are silently skipped.
     pub fn mark_chunk_dirty(&mut self, x: i32, y: i32, z: i32) {
         let cx = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
         let cz = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
@@ -246,16 +347,20 @@ impl State {
 
         let mut world = self.world.write();
 
+        
         if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
             if sy >= 0 && (sy as usize) < chunk.subchunks.len() {
                 chunk.subchunks[sy as usize].mesh_dirty = true;
             }
         }
 
+        
+        
         let lx = x.rem_euclid(CHUNK_SIZE);
         let lz = z.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(SUBCHUNK_HEIGHT);
 
+        
         if lx == 0 {
             if let Some(chunk) = world.chunks.get_mut(&(cx - 1, cz)) {
                 if sy >= 0 && (sy as usize) < chunk.subchunks.len() {
@@ -263,6 +368,7 @@ impl State {
                 }
             }
         }
+        
         if lx == CHUNK_SIZE - 1 {
             if let Some(chunk) = world.chunks.get_mut(&(cx + 1, cz)) {
                 if sy >= 0 && (sy as usize) < chunk.subchunks.len() {
@@ -270,6 +376,7 @@ impl State {
                 }
             }
         }
+        
         if lz == 0 {
             if let Some(chunk) = world.chunks.get_mut(&(cx, cz - 1)) {
                 if sy >= 0 && (sy as usize) < chunk.subchunks.len() {
@@ -277,6 +384,7 @@ impl State {
                 }
             }
         }
+        
         if lz == CHUNK_SIZE - 1 {
             if let Some(chunk) = world.chunks.get_mut(&(cx, cz + 1)) {
                 if sy >= 0 && (sy as usize) < chunk.subchunks.len() {
@@ -284,11 +392,13 @@ impl State {
                 }
             }
         }
+        
         if ly == 0 && sy > 0 {
             if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
                 chunk.subchunks[(sy - 1) as usize].mesh_dirty = true;
             }
         }
+        
         if ly == SUBCHUNK_HEIGHT - 1 && sy < NUM_SUBCHUNKS - 1 {
             if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
                 chunk.subchunks[(sy + 1) as usize].mesh_dirty = true;
@@ -296,6 +406,12 @@ impl State {
         }
     }
 
+    /// Forwards all pending network events to the multiplayer subsystem.
+    ///
+    /// Sends the local player's current position, yaw, and pitch, processes
+    /// incoming state updates from remote players, and handles lobby/game-state
+    /// transitions.  Called at the very start of each frame so network state is
+    /// fresh before any physics or world queries run.
     fn update_network_state(&mut self) {
         update_network(
             &mut self.my_player_id,
