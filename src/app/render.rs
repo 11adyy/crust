@@ -330,7 +330,6 @@ impl State {
             let cascade_matrix: [[f32; 4]; 4] = csm.cascades[i].view_proj.into();
             let mut shadow_uniform_data = [0f32; 64]; 
             shadow_uniform_data[0..16].copy_from_slice(cascade_matrix.as_flattened());
-            shadow_uniform_data[16] = time; 
 
             self.queue.write_buffer(
                 &self.shadow_cascade_buffer,
