@@ -15,8 +15,5 @@ struct VertexInput {
 
 @vertex
 fn vs_shadow(model: VertexInput) -> @builtin(position) vec4<f32> {
-    
-    
-    
     return uniforms.cascade_view_proj * vec4<f32>(model.position, 1.0);
 }
