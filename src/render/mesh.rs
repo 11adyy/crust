@@ -291,12 +291,12 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
 
         
         let faces = [
-            ([4, 5, 6, 7], [0.0_f32, 0.0, 1.0]),  
-            ([1, 0, 3, 2], [0.0, 0.0, -1.0]),       
-            ([5, 1, 2, 6], [1.0, 0.0, 0.0]),        
-            ([0, 4, 7, 3], [-1.0, 0.0, 0.0]),       
-            ([7, 6, 2, 3], [0.0, 1.0, 0.0]),        
-            ([0, 1, 5, 4], [0.0, -1.0, 0.0]),       
+            ([4, 5, 6, 7], [0.0_f32, 0.0, 1.0]), 
+            ([1, 0, 3, 2], [0.0, 0.0, -1.0]),    
+            ([5, 1, 2, 6], [1.0, 0.0, 0.0]),     
+            ([0, 4, 7, 3], [-1.0, 0.0, 0.0]),    
+            ([7, 6, 2, 3], [0.0, 1.0, 0.0]),     
+            ([0, 1, 5, 4], [0.0, -1.0, 0.0]),    
         ];
 
         for (face_indices, normal) in faces {
@@ -323,34 +323,114 @@ pub fn build_player_model(x: f32, y: f32, z: f32, yaw: f32) -> (Vec<Vertex>, Vec
         }
     };
 
-    let skin_color  = [0.9, 0.75, 0.6];  
-    let shirt_color = [0.2, 0.5,  0.9];  
-    let pants_color = [0.3, 0.25, 0.2];  
+    let skin_color = [0.9, 0.75, 0.6]; 
+    let shirt_color = [0.2, 0.5, 0.9]; 
+    let pants_color = [0.3, 0.25, 0.2]; 
     let shoes_color = [0.15, 0.15, 0.15]; 
 
     
-    add_box(&mut vertices, &mut indices, 0.0, 1.75, 0.0, 0.25, 0.25, 0.25, skin_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        0.0,
+        1.75,
+        0.0,
+        0.25,
+        0.25,
+        0.25,
+        skin_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, 0.0, 1.125, 0.0, 0.25, 0.375, 0.125, shirt_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        0.0,
+        1.125,
+        0.0,
+        0.25,
+        0.375,
+        0.125,
+        shirt_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, -0.375, 1.125, 0.0, 0.125, 0.375, 0.125, shirt_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        -0.375,
+        1.125,
+        0.0,
+        0.125,
+        0.375,
+        0.125,
+        shirt_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, 0.375, 1.125, 0.0, 0.125, 0.375, 0.125, shirt_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        0.375,
+        1.125,
+        0.0,
+        0.125,
+        0.375,
+        0.125,
+        shirt_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, -0.125, 0.5, 0.0, 0.125, 0.25, 0.125, pants_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        -0.125,
+        0.5,
+        0.0,
+        0.125,
+        0.25,
+        0.125,
+        pants_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, 0.125, 0.5, 0.0, 0.125, 0.25, 0.125, pants_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        0.125,
+        0.5,
+        0.0,
+        0.125,
+        0.25,
+        0.125,
+        pants_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, -0.125, 0.125, 0.0, 0.125, 0.125, 0.125, shoes_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        -0.125,
+        0.125,
+        0.0,
+        0.125,
+        0.125,
+        0.125,
+        shoes_color,
+    );
 
     
-    add_box(&mut vertices, &mut indices, 0.125, 0.125, 0.0, 0.125, 0.125, 0.125, shoes_color);
+    add_box(
+        &mut vertices,
+        &mut indices,
+        0.125,
+        0.125,
+        0.0,
+        0.125,
+        0.125,
+        0.125,
+        shoes_color,
+    );
 
     (vertices, indices)
 }

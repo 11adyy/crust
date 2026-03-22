@@ -1,8 +1,8 @@
-# Render3D Project - Additional Documentation
+# crust Project - Additional Documentation
 
 ## Project-Level Documentation
 
-This document provides supplementary information about key systems and patterns used throughout the Render3D project.
+This document provides supplementary information about key systems and patterns used throughout the crust project.
 
 ---
 
@@ -79,7 +79,7 @@ cargo build
 RUST_LOG=debug cargo run
 
 # Specific module logging
-RUST_LOG=render3d::render=debug cargo run
+RUST_LOG=crust::render=debug cargo run
 
 # Verbose output
 RUST_LOG=trace cargo run
@@ -111,7 +111,7 @@ nvidia-smi  # NVIDIA GPUs
 ### Module Hierarchy
 
 ```
-render3d (binary root)
+crust (binary root)
 ├── app/          ← Entry point for game loop
 ├── core/         ← Fundamental data structures
 ├── render/       ← GPU rendering pipeline
@@ -439,7 +439,7 @@ let objects: Vec<Box<dyn Renderable>> = vec![
 
 **Debugging:**
 ```bash
-valgrind --leak-check=full ./render3d
+valgrind --leak-check=full ./crust
 ```
 
 **Common Causes:**
@@ -473,7 +473,7 @@ valgrind --leak-check=full ./render3d
 
 ---
 
-## Extending Render3D
+## Extending crust
 
 ### Adding a New Block Type
 
@@ -528,7 +528,7 @@ Before publishing a release:
 
 ## License & Attribution
 
-**Render3D License:**
+**crust License:**
 [See LICENSE file in project root]
 
 **Third-Party Libraries:**
@@ -567,6 +567,6 @@ Check individual LICENSE files in:
 ---
 
 **Last Updated:** 2026-03-05
-**Project:** Render3D - Voxel Rendering Engine  
+**Project:** crust - Voxel Rendering Engine  
 **Status:** Active Development
 

@@ -1,4 +1,4 @@
-# Contributing to Render3D
+# Contributing to crust
 
 Thank you for your interest in contributing! This document will help you get started.
 

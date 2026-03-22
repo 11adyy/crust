@@ -132,7 +132,7 @@ LOW:     ChatMessage, EntityUpdate
 ```
 Client Start
     ↓
-Connect to Server
+Cmotd=Welcome to crust!
     ├─ QUIC (preferred)
     └─ TCP (fallback)
     ↓
