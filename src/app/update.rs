@@ -164,18 +164,18 @@ impl State {
 
             
             
-            let (raycast_result, target_block) =
-                if self.mouse_captured && (self.input.left_mouse || self.input.right_mouse) {
-                    let raycast = self.camera.raycast(&*world, 5.0);
-                    if let Some((bx, by, bz, _, _, _)) = raycast {
-                        let block = world.get_block(bx, by, bz);
-                        (Some((bx, by, bz, 0, 0, 0)), Some(block))
-                    } else {
-                        (None, None)
-                    }
+            
+            let (raycast_result, target_block) = if self.mouse_captured {
+                let raycast = self.camera.raycast(&*world, 5.0);
+                if let Some((bx, by, bz, _, _, _)) = raycast {
+                    let block = world.get_block(bx, by, bz);
+                    (Some((bx, by, bz, 0, 0, 0)), Some(block))
                 } else {
                     (None, None)
-                };
+                }
+            } else {
+                (None, None)
+            };
 
             
             
@@ -193,6 +193,10 @@ impl State {
                 eye_block,
             }
         }; 
+
+        self.highlighted_block = snapshot
+            .raycast_result
+            .map(|(bx, by, bz, _, _, _)| (bx, by, bz));
 
         
         if player_chunk_moved {
