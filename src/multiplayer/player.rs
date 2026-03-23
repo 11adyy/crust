@@ -59,7 +59,7 @@ pub struct PlayerLabel {
 /// The order of entries is arbitrary (reflects `HashMap` iteration order).
 pub fn queue_remote_players_labels(
     remote_players: &std::collections::HashMap<u32, RemotePlayer>,
-    view_proj: &cgmath::Matrix4<f32>,
+    view_proj: &glam::Mat4,
     width: f32,
     height: f32,
 ) -> Vec<PlayerLabel> {
@@ -67,8 +67,8 @@ pub fn queue_remote_players_labels(
 
     for (_id, player) in remote_players {
         
-        let pos = cgmath::Vector4::new(player.x, player.y + 2.2, player.z, 1.0);
-        let clip_pos = view_proj * pos;
+        let pos = glam::Vec4::new(player.x, player.y + 2.2, player.z, 1.0);
+        let clip_pos = *view_proj * pos;
 
         
         

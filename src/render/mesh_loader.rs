@@ -4,6 +4,7 @@ use crossbeam_channel::{Receiver, Sender, bounded};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
+use crate::logger::{log, LogLevel};
 
 /// A request to build the terrain and water meshes for one subchunk.
 pub struct MeshRequest {
@@ -129,9 +130,7 @@ impl MeshLoader {
                 
                 
                 
-                tracing::warn!(
-                    "Mesh request channel full — dropping request for subchunk ({cx}, {cz}, {sy})"
-                );
+                
             }
         }
     }
