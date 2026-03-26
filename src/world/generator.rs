@@ -43,80 +43,49 @@ use crate::world::spline::TerrainSpline;
 /// | `noise_cave_warp_x/z` | Domain warp inside caves | 0.018 | FBm |
 /// | `noise_surface_entrance` | Surface cave-entrance detection | 0.025 | FBm |
 pub struct ChunkGenerator {
-    /// Low-frequency FBm controlling continental land masses vs. ocean basins.
     noise_continents: FastNoiseLite,
-    /// Mid-frequency FBm shaping hills and valleys within a biome.
     noise_terrain: FastNoiseLite,
-    /// High-frequency FBm adding surface micro-variation.
     noise_detail: FastNoiseLite,
-    /// Smooth simplex noise defining the temperature axis of the biome grid.
     noise_temperature: FastNoiseLite,
-    /// Smooth simplex noise defining the moisture axis of the biome grid.
     noise_moisture: FastNoiseLite,
-    /// Simplex noise used to carve river channels (peaks of `1 - |n|`).
     noise_river: FastNoiseLite,
-    /// Simplex noise used to identify lake basin locations.
     noise_lake: FastNoiseLite,
-    /// High-frequency simplex noise controlling tree/foliage spawn density.
     noise_trees: FastNoiseLite,
-    /// Simplex noise used to raise island terrain above the ocean floor.
     noise_island: FastNoiseLite,
-    /// 3-D simplex noise for the primary "cheese" cave volume.
     noise_cave1: FastNoiseLite,
-    /// 3-D simplex noise for the secondary cave layer (also used for spaghetti caves).
     noise_cave2: FastNoiseLite,
-    /// 3-D simplex noise for the tertiary cave layer (noodle + worm tunnel component).
     noise_cave3: FastNoiseLite,
-    /// Low-frequency FBm whose value is converted by a spline into an erosion multiplier.
     noise_erosion: FastNoiseLite,
-    /// FBm domain-warp X component applied before all terrain/biome sampling.
     noise_warp_x: FastNoiseLite,
-    /// FBm domain-warp Z component applied before all terrain/biome sampling.
     noise_warp_z: FastNoiseLite,
-    /// Ridged FBm producing sharp mountain ridges.
     noise_ridged: FastNoiseLite,
-    /// FBm feeding the peaks-and-valleys spline to push mountains higher.
     noise_pv: FastNoiseLite,
-    /// Reserved for future decoration placement; currently unused.
     #[allow(dead_code)]
     noise_decor: FastNoiseLite,
-    /// FBm domain-warp X component applied inside the cave volume to make tunnels meander.
     noise_cave_warp_x: FastNoiseLite,
-    /// FBm domain-warp Z component applied inside the cave volume.
     noise_cave_warp_z: FastNoiseLite,
-    /// FBm used to detect candidate locations for vertical cave-entrance shafts.
     noise_surface_entrance: FastNoiseLite,
-    /// The seed used to initialize all noise samplers.  Also stored so
-    /// `Clone` can reproduce an identical generator without cloning each
-    /// `FastNoiseLite` individually.
     pub seed: u32,
 }
 
 impl ChunkGenerator {
-    /// Constructs a new generator from `seed`, creating all noise samplers.
-    ///
-    /// Each sampler receives `seed` incremented by a unique constant offset
-    /// so that no two layers share the same random sequence, even at their
-    /// lowest frequencies.  The offsets are intentionally non-consecutive
-    /// (0–11 for the main layers, 20–31 for warp, 40 for surface entrances)
-    /// to leave room for future additions without shifting existing seeds.
     pub fn new(seed: u32) -> Self {
         ChunkGenerator {
             noise_continents:       Self::create_fbm_noise(seed, 0.0018),
             noise_terrain:          Self::create_fbm_noise(seed.wrapping_add(1),  0.013),
-            noise_detail:           Self::create_fbm_noise(seed.wrapping_add(2),  0.018),
-            noise_temperature:      Self::create_noise(seed.wrapping_add(3),      0.009),
+            noise_detail:           Self::create_fbm_noise(seed.wrapping_add(2),  0.019),
+            noise_temperature:      Self::create_noise(seed.wrapping_add(3),      0.015),
             noise_moisture:         Self::create_noise(seed.wrapping_add(4),      0.0012),
-            noise_river:            Self::create_noise(seed.wrapping_add(5),      0.032),
+            noise_river:            Self::create_noise(seed.wrapping_add(5),      0.022),
             noise_lake:             Self::create_noise(seed.wrapping_add(6),      0.062),
-            noise_trees:            Self::create_noise(seed.wrapping_add(7),      0.232),
-            noise_island:           Self::create_noise(seed.wrapping_add(8),      0.035),
+            noise_trees:            Self::create_noise(seed.wrapping_add(7),      0.132),
+            noise_island:           Self::create_noise(seed.wrapping_add(8),      0.055),
             noise_cave1:            Self::create_3d_noise(seed.wrapping_add(9),   0.025),
             noise_cave2:            Self::create_3d_noise(seed.wrapping_add(10),  0.0192),
             noise_cave3:            Self::create_3d_noise(seed.wrapping_add(11),  0.0128),
             noise_erosion:          Self::create_fbm_noise(seed.wrapping_add(12), 0.006),
             noise_warp_x:           Self::create_fbm_noise(seed.wrapping_add(20), 0.007),
-            noise_warp_z:           Self::create_fbm_noise(seed.wrapping_add(21), 0.003),
+            noise_warp_z:           Self::create_fbm_noise(seed.wrapping_add(21), 0.005),
             noise_ridged:           Self::create_ridged_noise(seed.wrapping_add(22), 0.006),
             noise_pv:               Self::create_fbm_noise(seed.wrapping_add(23), 0.005),
             noise_decor:            Self::create_noise(seed.wrapping_add(24),      0.13),
@@ -129,10 +98,6 @@ impl ChunkGenerator {
 
     
 
-    /// Creates a single-octave OpenSimplex2 sampler at the given frequency.
-    ///
-    /// Used for biome axis noise (temperature, moisture) and decoration
-    /// placement where a smooth, featureless distribution is preferred.
     fn create_noise(seed: u32, frequency: f32) -> FastNoiseLite {
         let mut noise = FastNoiseLite::with_seed(seed as i32);
         noise.set_noise_type(Some(NoiseType::OpenSimplex2));
@@ -140,12 +105,6 @@ impl ChunkGenerator {
         noise
     }
 
-    /// Creates a 5-octave FBm (Fractional Brownian Motion) sampler.
-    ///
-    /// FBm stacks successive octaves at doubled frequency (`lacunarity = 2`)
-    /// and halved amplitude (`gain = 0.5`), producing natural-looking
-    /// self-similar terrain.  Used for continents, terrain shape, detail, and
-    /// all domain-warp layers.
     fn create_fbm_noise(seed: u32, frequency: f32) -> FastNoiseLite {
         let mut noise = FastNoiseLite::with_seed(seed as i32);
         noise.set_noise_type(Some(NoiseType::OpenSimplex2));
@@ -157,12 +116,6 @@ impl ChunkGenerator {
         noise
     }
 
-    /// Creates a 5-octave Ridged FBm sampler.
-    ///
-    /// Ridged noise folds negative values upward (`|n|`) and then inverts so
-    /// that the highest values appear as sharp ridges.  A slightly higher
-    /// lacunarity (`2.2`) adds extra crinkliness to mountain silhouettes.
-    /// Used exclusively for the mountain-ridge layer.
     fn create_ridged_noise(seed: u32, frequency: f32) -> FastNoiseLite {
         let mut noise = FastNoiseLite::with_seed(seed as i32);
         noise.set_noise_type(Some(NoiseType::OpenSimplex2));
@@ -174,11 +127,6 @@ impl ChunkGenerator {
         noise
     }
 
-    /// Creates a single-octave 3-D OpenSimplex2 sampler.
-    ///
-    /// 3-D sampling is required for cave volumes so that the noise varies
-    /// continuously both horizontally and vertically (2-D noise would produce
-    /// columns of uniform cave/solid blocks at any given XZ position).
     fn create_3d_noise(seed: u32, frequency: f32) -> FastNoiseLite {
         let mut noise = FastNoiseLite::with_seed(seed as i32);
         noise.set_noise_type(Some(NoiseType::OpenSimplex2));
@@ -188,46 +136,6 @@ impl ChunkGenerator {
 
     
 
-    /// Generates a complete [`Chunk`] for chunk column `(cx, cz)`.
-    ///
-    /// # Generation passes (in order)
-    ///
-    /// 1. **Biome & height pre-pass** – samples `get_biome` and
-    ///    `get_terrain_height` for every column and caches results in
-    ///    `biome_map` and `height_map`.  Pre-caching avoids redundant noise
-    ///    evaluations in the block-fill loops below.
-    ///
-    /// 2. **Block fill** – for each column iterates Y from 0 to `max_y` and
-    ///    places solid terrain, water, and ice.  Mountain and Island biomes use
-    ///    an extra 3-D density query near the surface so overhangs and arches
-    ///    are possible.
-    ///
-    /// 3. **Cave carving** – builds a `cave_entrance_map` first (used to relax
-    ///    the surface-proximity guard near real openings), then calls
-    ///    `is_cave` for every sub-surface block and sets matching blocks to Air.
-    ///    Bedrock is never carved.
-    ///
-    /// 4. **Cave decoration** – scans cave-air columns for:
-    ///    - Gravel patches on cave floors.
-    ///    - Clay deposits at mid-depth (Y 35–55).
-    ///    - Stalagmites growing upward from Stone floors.
-    ///    - Stalactites hanging downward from Stone ceilings.
-    ///
-    /// 5. **Surface cave-entrance shafts** – places vertical cylindrical shafts
-    ///    that break the surface and connect to the cave system below, giving
-    ///    players visible entry points without special dungeon structures.
-    ///    Shafts are skipped near ocean/river/lake/beach biomes and at low
-    ///    elevations.
-    ///
-    /// 6. **Surface decorations** – delegates to `generate_decorations` for
-    ///    trees, cacti, dead bushes, mountain gravel, and snow caps.
-    ///
-    /// 7. **Sub-chunk metadata** – calls `check_empty` and `check_fully_opaque`
-    ///    on every sub-chunk so the renderer can skip invisible sections.
-    ///
-    /// # Parameters
-    /// - `cx` – Chunk column X coordinate (in chunks, not blocks).
-    /// - `cz` – Chunk column Z coordinate (in chunks, not blocks).
     pub fn generate_chunk(&self, cx: i32, cz: i32) -> Chunk {
         let mut chunk = Chunk::new(cx, cz);
         let base_x = cx * CHUNK_SIZE;
@@ -236,17 +144,90 @@ impl ChunkGenerator {
         
         
         
+        
+        
+        
+        
+        
+        
+        
+        const BLEND_RADIUS: i32 = 11;
+        
+        const SIGMA_SQ: f64 = (BLEND_RADIUS as f64 / 2.0) * (BLEND_RADIUS as f64 / 2.0);
+
+        let buf_size   = (CHUNK_SIZE + BLEND_RADIUS * 2) as usize; 
+        let buf_offset = BLEND_RADIUS; 
+
+        let mut buf_biome  = vec![Biome::Plains; buf_size * buf_size];
+        let mut buf_height = vec![0.0_f64;        buf_size * buf_size];
+
+        for bx in 0..buf_size as i32 {
+            for bz in 0..buf_size as i32 {
+                let world_x = base_x - buf_offset + bx;
+                let world_z = base_z - buf_offset + bz;
+                let idx   = bx as usize * buf_size + bz as usize;
+                let biome = self.get_biome(world_x, world_z);
+                buf_biome[idx]  = biome;
+                buf_height[idx] = self.calculate_base_height_with_biome(world_x, world_z, biome);
+            }
+        }
+
+        
+        let ks = (BLEND_RADIUS * 2 + 1) as usize; 
+        let mut kernel_weights = vec![0.0_f64; ks * ks];
+        for dx in -BLEND_RADIUS..=BLEND_RADIUS {
+            for dz in -BLEND_RADIUS..=BLEND_RADIUS {
+                let dist_sq = (dx * dx + dz * dz) as f64;
+                let ki = (dx + BLEND_RADIUS) as usize * ks + (dz + BLEND_RADIUS) as usize;
+                kernel_weights[ki] = (-dist_sq / (2.0 * SIGMA_SQ)).exp();
+            }
+        }
+
+        
+        
+        
+        
+        
+        
         let mut biome_map  = [[Biome::Plains; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
         let mut height_map = [[0i32;          CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
 
         for lx in 0..CHUNK_SIZE {
             for lz in 0..CHUNK_SIZE {
-                let lx_usize = lx as usize;
-                let lz_usize = lz as usize;
-                let world_x = base_x + lx;
-                let world_z = base_z + lz;
-                biome_map[lx_usize][lz_usize]  = self.get_biome(world_x, world_z);
-                height_map[lx_usize][lz_usize] = self.get_terrain_height(world_x, world_z);
+                
+                let cx_buf = (lx + buf_offset) as usize;
+                let cz_buf = (lz + buf_offset) as usize;
+                biome_map[lx as usize][lz as usize] =
+                    buf_biome[cx_buf * buf_size + cz_buf];
+
+                let mut total_height = 0.0_f64;
+                let mut total_weight = 0.0_f64;
+
+                let mut dx = -BLEND_RADIUS;
+                while dx <= BLEND_RADIUS {
+                    let stride_x = if dx.abs() > 3 { 2 } else { 1 };
+                    let mut dz = -BLEND_RADIUS;
+                    while dz <= BLEND_RADIUS {
+                        let stride_z = if dz.abs() > 3 { 2 } else { 1 };
+
+                        let bx  = (lx + buf_offset + dx) as usize;
+                        let bz  = (lz + buf_offset + dz) as usize;
+                        let ki  = (dx + BLEND_RADIUS) as usize * ks
+                            + (dz + BLEND_RADIUS) as usize;
+
+                        
+                        
+                        let w = kernel_weights[ki] * (stride_x * stride_z) as f64;
+                        total_height += buf_height[bx * buf_size + bz] * w;
+                        total_weight += w;
+
+                        dz += stride_z;
+                    }
+                    dx += stride_x;
+                }
+
+                height_map[lx as usize][lz as usize] =
+                    ((total_height / total_weight) as i32).clamp(1, WORLD_HEIGHT - 20);
             }
         }
 
@@ -258,10 +239,6 @@ impl ChunkGenerator {
                 let biome         = biome_map[lx as usize][lz as usize];
                 let surface_height = height_map[lx as usize][lz as usize];
 
-                
-                
-                
-                
                 let max_y = if matches!(biome, Biome::Mountains | Biome::Island) {
                     WORLD_HEIGHT - 20
                 } else {
@@ -269,12 +246,8 @@ impl ChunkGenerator {
                 };
 
                 for y in 0..max_y {
-                    
                     let mut is_solid = y < surface_height;
 
-                    
-                    
-                    
                     if matches!(biome, Biome::Mountains | Biome::Island)
                         && y >= surface_height - 8
                     {
@@ -294,8 +267,6 @@ impl ChunkGenerator {
                             chunk.set_block(lx, y, lz, block);
                         }
                     } else if y >= surface_height && y < SEA_LEVEL {
-                        
-                        
                         if biome == Biome::Tundra && y == SEA_LEVEL - 1 {
                             chunk.set_block(lx, y, lz, BlockType::Ice);
                         } else {
@@ -306,8 +277,6 @@ impl ChunkGenerator {
             }
         }
 
-        
-        
         
         let mut cave_entrance_map = [[false; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
         for lx in 0..CHUNK_SIZE {
@@ -327,11 +296,9 @@ impl ChunkGenerator {
                 let height    = height_map[lx as usize][lz as usize];
                 let is_entrance = cave_entrance_map[lx as usize][lz as usize];
 
-                
                 for y in 1..height.min(WORLD_HEIGHT - 1) {
                     if self.is_cave(world_x, y, world_z, height, is_entrance) {
                         let current = chunk.get_block(lx, y, lz);
-                        
                         if current != BlockType::Bedrock && current != BlockType::Air {
                             chunk.set_block(lx, y, lz, BlockType::Air);
                         }
@@ -348,26 +315,21 @@ impl ChunkGenerator {
                 let height  = height_map[lx as usize][lz as usize];
                 let hash_xz = self.position_hash(world_x, world_z);
 
-                
-                
                 for y in 5..height.min(WORLD_HEIGHT - 2) {
                     let current = chunk.get_block(lx, y, lz);
                     if current != BlockType::Air {
-                        continue; 
+                        continue;
                     }
 
                     let below = chunk.get_block(lx, y - 1, lz);
                     let above = chunk.get_block(lx, y + 1, lz);
 
-                    
                     if below != BlockType::Air
                         && below != BlockType::Water
                         && above == BlockType::Air
                     {
                         let hash3 = self.position_hash_3d(world_x, y, world_z);
 
-                        
-                        
                         if matches!(
                             below,
                             BlockType::Stone | BlockType::Dirt | BlockType::Gravel
@@ -379,9 +341,6 @@ impl ChunkGenerator {
                             }
                         }
 
-                        
-                        
-                        
                         if below == BlockType::Stone && hash_xz % 100 < 8 && y >= 8 {
                             let stalagmite_h = 1 + (hash3 % 3) as i32;
                             for dy in 0..stalagmite_h {
@@ -391,21 +350,18 @@ impl ChunkGenerator {
                                 {
                                     chunk.set_block(lx, ny, lz, BlockType::Stone);
                                 } else {
-                                    break; 
+                                    break;
                                 }
                             }
                         }
                     }
 
-                    
                     if above != BlockType::Air
                         && above != BlockType::Water
                         && below == BlockType::Air
                     {
                         let hash3 = self.position_hash_3d(world_x, y, world_z);
 
-                        
-                        
                         if above == BlockType::Stone
                             && hash_xz.wrapping_add(7) % 100 < 6
                         {
@@ -427,10 +383,6 @@ impl ChunkGenerator {
         }
 
         
-        
-        
-        
-        
         for lx in 1..(CHUNK_SIZE - 1) {
             for lz in 1..(CHUNK_SIZE - 1) {
                 let world_x = base_x + lx;
@@ -438,7 +390,6 @@ impl ChunkGenerator {
                 let biome  = biome_map[lx as usize][lz as usize];
                 let height = height_map[lx as usize][lz as usize];
 
-                
                 if matches!(
                     biome,
                     Biome::Ocean | Biome::River | Biome::Lake | Biome::Beach
@@ -452,20 +403,15 @@ impl ChunkGenerator {
                 }
 
                 let hash = self.position_hash(world_x, world_z);
-                
                 let shaft_radius: i32 = if hash % 3 == 0 { 2 } else { 1 };
 
                 let max_shaft_depth = 24;
                 let shaft_start = height - 1;
                 let shaft_end   = (shaft_start - max_shaft_depth).max(SEA_LEVEL + 1);
 
-                
-                
-                
                 'shaft: for y in (shaft_end..=shaft_start).rev() {
                     for dx in -shaft_radius..=shaft_radius {
                         for dz in -shaft_radius..=shaft_radius {
-                            
                             if dx * dx + dz * dz
                                 > shaft_radius * shaft_radius + shaft_radius
                             {
@@ -477,8 +423,6 @@ impl ChunkGenerator {
                                 continue;
                             }
                             let current = chunk.get_block(nx, y, nz);
-                            
-                            
                             if current == BlockType::Air && y < shaft_start - 3 {
                                 break 'shaft;
                             }
@@ -497,10 +441,6 @@ impl ChunkGenerator {
         self.generate_decorations(&mut chunk, cx, cz, &biome_map, &height_map);
 
         
-        
-        
-        
-        
         for subchunk in &mut chunk.subchunks {
             subchunk.check_empty();
             subchunk.check_fully_opaque();
@@ -510,31 +450,23 @@ impl ChunkGenerator {
     }
 
     
-    
-    
-    
 
-    /// Returns the terrain surface height at world position `(x, z)`.
+    /// Returns the raw (unblended) terrain height at `(x, z)`.
     ///
-    /// Equivalent to calling `get_terrain_height` directly; exposed publicly
-    /// because the loader needs it for spawn-point search and LOD decisions.
+    /// Used by the `ChunkLoader` for spawn-point search and LOD decisions.
+    /// Returns the single-sample height rather than the blended value because
+    /// blending requires a full noise buffer and is only meaningful at chunk
+    /// granularity (done inside `generate_chunk`).
     pub fn get_terrain_height_pub(&self, x: i32, z: i32) -> i32 {
-        self.get_terrain_height(x, z)
+        let biome = self.get_biome(x, z);
+        (self.calculate_base_height_with_biome(x, z, biome) as i32)
+            .clamp(1, WORLD_HEIGHT - 20)
     }
 
-    /// Returns `true` if `(x, z)` is a cave-entrance column at the given height.
-    ///
-    /// Exposed so the `ChunkLoader` can pre-query entrance positions when
-    /// scheduling chunk generation order.
     pub fn is_cave_entrance_pub(&self, x: i32, z: i32, surface_height: i32) -> bool {
         self.is_cave_entrance(x, z, surface_height)
     }
 
-    /// Returns the 2-D position hash for `(x, z)`.
-    ///
-    /// Exposed for editor and debug tooling that needs a cheap, deterministic
-    /// pseudo-random value at a block position without constructing a noise
-    /// sampler.
     pub fn position_hash_pub(&self, x: i32, z: i32) -> u32 {
         self.position_hash(x, z)
     }
@@ -543,60 +475,39 @@ impl ChunkGenerator {
 
     /// Classifies the biome at world position `(x, z)`.
     ///
-    /// # Algorithm
-    ///
-    /// 1. **Domain warp** – offset `(x, z)` by up to ±80 blocks using
-    ///    `noise_warp_x/z` to break up biome boundaries from straight lines
-    ///    into natural-looking coastlines.
-    ///
-    /// 2. **Water bodies** – Rivers and lakes are tested first because they
-    ///    take priority over any land biome at the same location.
-    ///
-    /// 3. **Ocean / island** – Negative continental values indicate open ocean;
-    ///    sparse island noise can override this in low-continent regions.
-    ///
-    /// 4. **Beach** – A thin transition band between −0.38 and −0.22 on the
-    ///    continental axis.
-    ///
-    /// 5. **Mountains** – Triggered by high peaks-and-valleys value combined
-    ///    with low erosion and positive continental value.
-    ///
-    /// 6. **Temperature / moisture grid** – The remaining land biomes
-    ///    (Tundra, Desert, Swamp, Forest, Plains) are selected by querying
-    ///    the 2-D temperature and moisture axes.
+    /// Domain warp offsets match exactly those used in `calculate_base_height_with_biome`
+    /// (scale 0.005, Z offset +200) so biome boundaries and height boundaries
+    /// are always coherent — no more mismatched warp between the two systems.
     pub fn get_biome(&self, x: i32, z: i32) -> Biome {
         let fx = x as f32;
         let fz = z as f32;
 
         
         
+        
         let warp_scale = 80.0_f32;
         let wx = fx
-            + self.noise_warp_x.get_noise_2d(fx * 0.004, fz * 0.004) * warp_scale;
+            + self.noise_warp_x.get_noise_2d(fx * 0.005, fz * 0.005) * warp_scale;
         let wz = fz
             + self.noise_warp_z
-            .get_noise_2d(fx * 0.004 + 100.0, fz * 0.004 + 100.0)
+            .get_noise_2d(fx * 0.005 + 200.0, fz * 0.005 + 200.0)
             * warp_scale;
 
         let continent   = self.noise_continents.get_noise_2d(wx * 0.0018, wz * 0.0018);
         let river_noise = self.noise_river.get_noise_2d(wx * 0.055, wz * 0.055);
-        
-        
         let river_value = 1.0 - river_noise.abs() * 2.0;
         let lake_noise  = self.noise_lake.get_noise_2d(wx * 0.022, wz * 0.022);
 
-        
         if river_value > 0.88 && continent > -0.25 {
             return Biome::River;
         }
 
-        
         if lake_noise < -0.62 && continent > -0.15 {
             return Biome::Lake;
         }
 
         
-        if continent < -0.38 {
+        if continent < -0.42 {
             let island_noise = self.noise_island.get_noise_2d(wx * 0.045, wz * 0.045);
             if island_noise > 0.60 {
                 return Biome::Island;
@@ -605,118 +516,51 @@ impl ChunkGenerator {
         }
 
         
-        if continent < -0.22 {
+        
+        if continent < -0.18 {
             return Biome::Beach;
         }
 
-        
         let temp    = self.noise_temperature.get_noise_2d(wx * 0.006, wz * 0.006);
         let moist   = self.noise_moisture.get_noise_2d(wx * 0.008, wz * 0.008);
         let erosion = self.noise_erosion.get_noise_2d(wx * 0.004, wz * 0.004);
         let pv      = self.noise_pv.get_noise_2d(wx * 0.004, wz * 0.004);
 
-        
         if pv > 0.3 && erosion < 0.25 && continent > 0.0 {
             return Biome::Mountains;
         }
 
-        
         if temp < -0.3 {
             return Biome::Tundra;
         }
 
-        
         if temp > 0.4 {
             if moist < -0.2 {
-                return Biome::Desert; 
+                return Biome::Desert;
             }
             if moist > 0.15 {
-                return Biome::Swamp; 
+                return Biome::Swamp;
             }
         }
 
-        
         if moist > 0.45 && temp > -0.1 {
             return Biome::Swamp;
         }
 
-        
         if moist > -0.05 {
             return Biome::Forest;
         }
 
-        
         Biome::Plains
     }
 
     
 
-    /// Returns the surface terrain height at world position `(x, z)`.
-    ///
-    /// Rather than sampling the height at exactly `(x, z)`, this method
-    /// blends heights from a 5×5 neighborhood (radius 2) using a Gaussian
-    /// weight (`exp(-dist² / (radius × 1.5))`).  Blending softens the hard
-    /// biome transitions that would otherwise produce vertical walls where,
-    /// e.g., Plains meets Mountains.
-    ///
-    /// The blended result is clamped to `[1, WORLD_HEIGHT - 20]` so chunks
-    /// always have at least one surface block and never reach the absolute
-    /// ceiling.
-    fn get_terrain_height(&self, x: i32, z: i32) -> i32 {
-        let blend_radius = 2i32;
-        let center_biome = self.get_biome(x, z);
-        let mut total_height = 0.0;
-        let mut weights      = 0.0;
-
-        for dx in -blend_radius..=blend_radius {
-            for dz in -blend_radius..=blend_radius {
-                let wx = x + dx;
-                let wz = z + dz;
-                let dist_sq = (dx * dx + dz * dz) as f64;
-                
-                let weight = (-dist_sq / (blend_radius as f64 * 1.5)).exp();
-
-                let height = self.calculate_base_height_with_biome(wx, wz, center_biome);
-                total_height += height * weight;
-                weights      += weight;
-            }
-        }
-
-        let base_height = total_height / weights;
-        (base_height as i32).clamp(1, WORLD_HEIGHT - 20)
-    }
-
-    /// Computes the raw (unblended) height at `(x, z)` by first classifying
-    /// the biome and then delegating to `calculate_base_height_with_biome`.
-    ///
-    /// Currently unused in favor of the blended `get_terrain_height`, but
-    /// kept for debugging and future LOD purposes.
-    #[allow(dead_code)]
-    fn calculate_base_height(&self, x: i32, z: i32) -> f64 {
-        let biome = self.get_biome(x, z);
-        self.calculate_base_height_with_biome(x, z, biome)
-    }
-
     /// Core height function for a single `(x, z)` sample given a pre-computed `biome`.
     ///
-    /// # Algorithm
-    ///
-    /// 1. Apply domain warp (±60 blocks) to break up axis-aligned patterns.
-    /// 2. Sample all relevant noise layers once.
-    /// 3. Convert continental, erosion, and peaks-and-valleys noise through
-    ///    hand-tuned splines (see [`TerrainSpline`]) that map raw `[-1, 1]`
-    ///    values to world-space height contributions.
-    /// 4. Combine contributions according to biome-specific formulas.
-    ///
-    /// The per-biome formulas use different base heights, noise weights, and
-    /// erosion multipliers to produce distinct characteristic landscapes:
-    /// - **Ocean/River/Lake** – shallow sub-sea-level floors.
-    /// - **Beach/Island** – gentle low-elevation coasts.
-    /// - **Plains/Forest** – rolling hills above sea level.
-    /// - **Desert** – flat sandy plateau with dune ripples.
-    /// - **Tundra** – moderate hills, slightly above sea level.
-    /// - **Mountains** – ridged peaks powered by the ridged FBm and PV spline.
-    /// - **Swamp** – nearly flat, hovering just above sea level.
+    /// Domain warp uses the **same scale (0.005) and Z-offset (+200)** as
+    /// `get_biome`, guaranteeing that the biome boundary and the height
+    /// boundary stay in sync regardless of world position.
     fn calculate_base_height_with_biome(&self, x: i32, z: i32, biome: Biome) -> f64 {
         let fx = x as f32;
         let fz = z as f32;
@@ -738,49 +582,42 @@ impl ChunkGenerator {
         let ridged      = self.noise_ridged.get_noise_2d(wx, wz) as f64;
         let pv          = self.noise_pv.get_noise_2d(wx, wz) as f64;
 
-        
-        let cont_spline  = TerrainSpline::continental();
-        let cont_height  = cont_spline.sample(continental);
-
+        let cont_spline    = TerrainSpline::continental();
+        let cont_height    = cont_spline.sample(continental);
         let erosion_spline = TerrainSpline::erosion();
-        let erosion_mult   = erosion_spline.sample(erosion); 
-
-        let pv_spline  = TerrainSpline::peaks_valleys();
-        let pv_offset  = pv_spline.sample(pv);
+        let erosion_mult   = erosion_spline.sample(erosion);
+        let pv_spline      = TerrainSpline::peaks_valleys();
+        let pv_offset      = pv_spline.sample(pv);
 
         match biome {
             Biome::Ocean => {
-                
-                
                 let depth = 20.0 + (continental + 1.0) * 0.5 * 18.0;
                 depth + detail * 2.5
             }
             Biome::River => {
                 
-                let mut sum = 0.0;
-                let mut count = 0.0;
-                for dx in -1..=1 {
-                    for dz in -1..=1 {
-                        let nx = x + dx;
-                        let nz = z + dz;
-                        
-                        if dx != 0 || dz != 0 {
-                            sum += self.calculate_base_height_with_biome(nx, nz, Biome::Plains);
-                            count += 1.0;
-                        }
+                
+                
+                
+                let mut sum   = 0.0_f64;
+                let mut count = 0.0_f64;
+                for dx in -1..=1_i32 {
+                    for dz in -1..=1_i32 {
+                        if dx == 0 && dz == 0 { continue; }
+                        sum += self.calculate_base_height_with_biome(
+                            x + dx, z + dz, Biome::Plains,
+                        );
+                        count += 1.0;
                     }
                 }
                 let avg = sum / count;
-                
                 (avg - 2.0).min((SEA_LEVEL - 2) as f64) + detail * 1.5
-            },
+            }
             Biome::Lake  => (SEA_LEVEL - 5) as f64 + detail * 2.0,
             Biome::Beach => SEA_LEVEL as f64 + terrain * 3.5 * erosion_mult + detail * 1.5,
             Biome::Island => {
                 let island_noise =
                     self.noise_island.get_noise_2d(wx * 0.045, wz * 0.045) as f64;
-                
-                
                 let island_h = (island_noise + 1.0) * 0.5 * 28.0;
                 (SEA_LEVEL as f64
                     + island_h
@@ -789,8 +626,6 @@ impl ChunkGenerator {
                     .max(SEA_LEVEL as f64 - 3.0)
             }
             Biome::Plains => {
-                
-                
                 let rolling = self.noise_terrain.get_noise_2d(wx * 0.012, wz * 0.012) as f64;
                 cont_height.max(66.0)
                     + terrain * 5.0 * erosion_mult
@@ -805,7 +640,6 @@ impl ChunkGenerator {
                     + detail * 4.0
             }
             Biome::Desert => {
-                
                 let dune   = self.noise_detail.get_noise_2d(wx * 0.022, wz * 0.022) as f64;
                 let dune_h = (dune + 1.0) * 0.5 * 12.0;
                 62.0 + terrain * 7.0 * erosion_mult + dune_h + detail * 3.0
@@ -817,7 +651,8 @@ impl ChunkGenerator {
             Biome::Mountains => {
                 
                 
-                let ridge_strength = ((ridged + 1.0) * 0.5).powf(1.8) * 80.0;
+                let ridge_raw      = ((ridged + 1.0) * 0.5).powf(1.8) * 80.0;
+                let ridge_strength = ridge_raw * (1.0 - erosion_mult.min(0.8));
                 let base = cont_height.max(80.0);
                 base + ridge_strength
                     + pv_offset.max(0.0) * 0.6
@@ -837,43 +672,16 @@ impl ChunkGenerator {
 
     
 
-    /// Returns `true` if the block at `(x, y, z)` should be hollow (cave air).
-    ///
-    /// Three cave algorithms run in a depth-dependent stack:
-    ///
-    /// | Name | Depth | Mechanism |
-    /// |---|---|---|
-    /// | Cheese | Y < 54 | Product of two clamped noise values; produces large rounded voids. |
-    /// | Spaghetti | all depths | 2-D distance in the `(s1, s2)` plane; radius shrinks with altitude. |
-    /// | Noodle | Y > 20 | Thinner spaghetti variant using higher-frequency noise. |
-    /// | Worm | Y < 30 | Widest of the thin tunnels, exclusive to the deep zone. |
-    ///
-    /// All layers are evaluated in warped space: `(wx, wy, wz)` are shifted
-    /// by `noise_cave_warp_x/z` (amplitude 12 blocks XZ, 1.8 blocks Y) so
-    /// tunnels meander instead of running straight.
-    ///
-    /// A **surface proximity guard** prevents caves from breaking through the
-    /// surface.  Near a cave entrance the guard relaxes gracefully (8 → 4 block
-    /// minimum distance) so the entrance shaft can connect to the cave naturally.
-    ///
-    /// # Parameters
-    /// - `x, y, z`        – World-space block position.
-    /// - `surface_height` – Terrain surface Y at `(x, z)`.
-    /// - `is_entrance`    – Whether this column has been flagged as a cave entrance.
     fn is_cave(
         &self,
         x: i32, y: i32, z: i32,
         surface_height: i32,
         is_entrance: bool,
     ) -> bool {
-        
         if y <= 4 {
             return false;
         }
 
-        
-        
-        
         let min_surface_dist = if is_entrance {
             let t = ((surface_height - y) as f32 / 10.0).clamp(0.0, 1.0);
             (4.0 + t * 4.0) as i32
@@ -888,8 +696,6 @@ impl ChunkGenerator {
         let fy = y as f32;
         let fz = z as f32;
 
-        
-        
         let warp_amp = 12.0_f32;
         let wx = fx
             + self.noise_cave_warp_x
@@ -911,10 +717,6 @@ impl ChunkGenerator {
         let in_lower  = y < 54;
         let in_middle = y >= 54 && y < 90;
 
-        
-        
-        
-        
         if in_lower {
             let c1 = self.noise_cave1.get_noise_3d(wx * 0.030, wy * 0.010, wz * 0.030);
             let c2 = self.noise_cave2.get_noise_3d(
@@ -928,10 +730,6 @@ impl ChunkGenerator {
             }
         }
 
-        
-        
-        
-        
         let s1 = self.noise_cave1.get_noise_3d(wx * 0.060 + 500.0, wy * 0.025, wz * 0.060);
         let s2 = self.noise_cave3.get_noise_3d(wx * 0.060 + 900.0, wy * 0.025, wz * 0.060);
         let spag_dist   = (s1 * s1 + s2 * s2).sqrt();
@@ -946,10 +744,6 @@ impl ChunkGenerator {
             return true;
         }
 
-        
-        
-        
-        
         if y > 20 {
             let n1 = self.noise_cave2.get_noise_3d(wx * 0.090 + 800.0,  wy * 0.040, wz * 0.090);
             let n2 = self.noise_cave3.get_noise_3d(wx * 0.090 + 1200.0, wy * 0.040, wz * 0.090);
@@ -960,9 +754,6 @@ impl ChunkGenerator {
             }
         }
 
-        
-        
-        
         if y < 30 {
             let w1 = self.noise_cave2.get_noise_3d(wx * 0.042 + 800.0,  wy * 0.015, wz * 0.042);
             let w2 = self.noise_cave3.get_noise_3d(wx * 0.042 + 1200.0, wy * 0.015, wz * 0.042);
@@ -975,20 +766,6 @@ impl ChunkGenerator {
         false
     }
 
-    /// Returns `true` if `(x, z)` at the given surface height is a location
-    /// where the cave system reaches close enough to the surface to be
-    /// considered a natural hillside or cliff entrance.
-    ///
-    /// # Algorithm
-    /// 1. Reject underwater columns (`surface_height ≤ SEA_LEVEL + 2`).
-    /// 2. Filter by a high-threshold 2-D noise value to limit entrance density.
-    /// 3. Prefer hillside locations (high `terrain` slope) by using a lower
-    ///    threshold when `terrain_slope > 0.18`.
-    /// 4. Apply a hash-based random gate (4% on hillsides, 10% elsewhere) so
-    ///    not every candidate column actually becomes an entrance.
-    /// 5. Verify that at least one block in the column (surface − 40 to
-    ///    surface − 6) matches the cheese-cave condition, confirming that the
-    ///    cave truly exists below.
     fn is_cave_entrance(&self, x: i32, z: i32, surface_height: i32) -> bool {
         if surface_height <= SEA_LEVEL + 2 {
             return false;
@@ -997,13 +774,10 @@ impl ChunkGenerator {
         let fx = x as f32;
         let fz = z as f32;
 
-        
         let entrance_noise = self
             .noise_cave1
             .get_noise_2d(fx * 0.014 + 1000.0, fz * 0.014 + 1000.0);
 
-        
-        
         let terrain_slope = self
             .noise_terrain
             .get_noise_2d(fx * 0.018, fz * 0.018)
@@ -1015,14 +789,12 @@ impl ChunkGenerator {
             return false;
         }
 
-        
         let hash = self.position_hash(x, z);
         let entrance_chance = if is_hillside { 4 } else { 10 };
         if hash % entrance_chance != 0 {
             return false;
         }
 
-        
         for check_y in (surface_height - 40).max(8)..=(surface_height - 6) {
             let fy = check_y as f32;
             let c1 = self.noise_cave1.get_noise_3d(fx * 0.045, fy * 0.022, fz * 0.045);
@@ -1035,20 +807,6 @@ impl ChunkGenerator {
         false
     }
 
-    /// Returns `true` if `(x, z)` is a candidate for a **vertical shaft**
-    /// entrance that breaks through the surface from above.
-    ///
-    /// Unlike `is_cave_entrance` (which tests for a hillside opening), this
-    /// method identifies locations where a straight-down shaft should be
-    /// carved to create a visible sinkhole or pit.  The shaft is then dug
-    /// in pass 5 of `generate_chunk`.
-    ///
-    /// # Algorithm
-    /// 1. Reject underwater columns.
-    /// 2. Apply a high-threshold noise filter (`ent_noise > 0.72`).
-    /// 3. Hash gate: 1-in-8 surviving columns proceed.
-    /// 4. Confirm that either a cheese-cave or a spaghetti-cave passes through
-    ///    the column at some depth between (surface − 22) and (surface − 5).
     fn is_surface_cave_entrance(&self, x: i32, z: i32, surface_height: i32) -> bool {
         if surface_height <= SEA_LEVEL + 3 {
             return false;
@@ -1069,18 +827,15 @@ impl ChunkGenerator {
             return false;
         }
 
-        
         for check_y in (surface_height - 22).max(8)..=(surface_height - 5) {
             let fy = check_y as f32;
 
-            
             let c1 = self.noise_cave1.get_noise_3d(fx * 0.045, fy * 0.022, fz * 0.045);
             let c2 = self.noise_cave2.get_noise_3d(fx * 0.032, fy * 0.018, fz * 0.032);
             if c1 > 0.55 && c2 > 0.55 {
                 return true;
             }
 
-            
             let s1 = self
                 .noise_cave1
                 .get_noise_3d(fx * 0.065 + 500.0, fy * 0.055, fz * 0.065);
@@ -1097,25 +852,6 @@ impl ChunkGenerator {
 
     
 
-    /// Computes a signed density value for 3-D terrain overhangs in mountain
-    /// and island biomes.
-    ///
-    /// Positive values indicate solid rock; zero or negative values indicate
-    /// air (an overhang or arch).  The value is evaluated only within 8 blocks
-    /// of the 2-D surface height.
-    ///
-    /// # Density formula
-    ///
-    /// `density = vertical_gradient + density_noise`
-    ///
-    /// - **`vertical_gradient`** – `(surface_height − y) / 8.0`: positive below the
-    ///   surface, transitions through zero at the surface.  This provides a
-    ///   natural bias toward solid rock deep inside and air above.
-    /// - **`density_noise`** – biome-specific noise blend:
-    ///   - *Mountains*: combination of a 2-D terrain layer (0.55 weight) and a
-    ///     full 3-D detail layer (0.45 weight) for complex cliff faces.
-    ///   - *Island*: purely 3-D noise for rounded, bumpy island peaks.
-    ///   - *Other biomes*: 0.0 (function should not be called for other biomes).
     fn get_3d_density(
         &self,
         x: i32, y: i32, z: i32,
@@ -1126,13 +862,10 @@ impl ChunkGenerator {
         let fy = y as f32;
         let fz = z as f32;
 
-        
         let vertical_gradient = (surface_height as f64 - y as f64) / 8.0;
 
         let density_noise = match biome {
             Biome::Mountains => {
-                
-                
                 let terrain = self.noise_terrain.get_noise_2d(fx * 0.018, fz * 0.018) as f64
                     * 0.55;
                 let detail  = self.noise_detail
@@ -1153,32 +886,6 @@ impl ChunkGenerator {
 
     
 
-    /// Returns the [`BlockType`] that should be placed at `(world_x, y, world_z)`
-    /// given the pre-classified `biome` and `surface_height`.
-    ///
-    /// # Shared rules (applied before biome-specific logic)
-    ///
-    /// - Y = 0 is always `Bedrock`.
-    /// - Y 1–4: probabilistic bedrock (`chance = (5 − y) × 20%`) to create a
-    ///   rough, uneven bedrock floor rather than a flat slab.
-    /// - Y < 8: 30% chance of Stone mixed into the bedrock transition zone.
-    ///
-    /// # Per-biome surface layer
-    ///
-    /// Each biome has a `dirt_depth` in the range [3, 5] (seeded by position
-    /// hash) that controls how deep the topsoil layer extends before giving
-    /// way to stone.
-    ///
-    /// | Biome | Surface | Subsurface | Substrate |
-    /// |---|---|---|---|
-    /// | Ocean/River/Lake | Sand (top 2) | Gravel (3–5) | Stone |
-    /// | Beach/Island | Sand | Sand | Stone |
-    /// | Desert | Sand (top 12) | Sand | Stone |
-    /// | Tundra | Snow | Dirt | Stone |
-    /// | Mountains (high) | Snow / Gravel / Stone | Stone | Stone |
-    /// | Mountains (low) | Grass | Dirt | Stone |
-    /// | Swamp | Clay (≤ sea level) or Grass | Dirt | Stone |
-    /// | Plains/Forest | Grass | Dirt | Stone |
     fn get_block_for_biome(
         &self,
         biome: Biome,
@@ -1187,11 +894,9 @@ impl ChunkGenerator {
         world_x: i32,
         world_z: i32,
     ) -> BlockType {
-        
         if y == 0 {
             return BlockType::Bedrock;
         }
-        
         if y <= 4 {
             let bedrock_chance = (5 - y) as u32 * 20;
             let hash = self.position_hash_3d(world_x, y, world_z);
@@ -1200,7 +905,6 @@ impl ChunkGenerator {
             }
         }
 
-        
         if y < 8 {
             let deep_hash = self.position_hash_3d(world_x, y, world_z);
             if deep_hash % 10 < 3 {
@@ -1209,8 +913,6 @@ impl ChunkGenerator {
         }
 
         let depth_from_surface = surface_height - y;
-        
-        
         let dirt_depth = 3 + (self.position_hash(world_x, world_z) % 3) as i32;
 
         match biome {
@@ -1229,7 +931,6 @@ impl ChunkGenerator {
                 } else if depth_from_surface > 0 {
                     BlockType::Sand
                 } else if y == surface_height - 1 {
-                    
                     if biome == Biome::Island && y > SEA_LEVEL + 2 {
                         BlockType::Grass
                     } else {
@@ -1259,14 +960,12 @@ impl ChunkGenerator {
             }
             Biome::Mountains => {
                 if y > 150 {
-                    
                     if y == surface_height - 1 {
                         BlockType::Snow
                     } else {
                         BlockType::Stone
                     }
                 } else if y > 115 {
-                    
                     let hash = self.position_hash_3d(world_x, y, world_z);
                     if depth_from_surface <= 1 {
                         if hash % 4 == 0 {
@@ -1293,7 +992,6 @@ impl ChunkGenerator {
                 } else if depth_from_surface > 1 {
                     BlockType::Dirt
                 } else if y == surface_height - 1 {
-                    
                     if y <= SEA_LEVEL + 1 {
                         BlockType::Clay
                     } else {
@@ -1319,24 +1017,6 @@ impl ChunkGenerator {
 
     
 
-    /// Places biome-appropriate surface decorations (trees, cacti, snow, gravel)
-    /// into `chunk`.
-    ///
-    /// A 4-block inward margin is maintained on all four sides of the chunk so
-    /// that tree canopy geometry never writes outside the chunk boundary.
-    /// Columns at or below sea level are skipped to prevent decorations
-    /// appearing underwater.
-    ///
-    /// # Per-biome decoration rules
-    ///
-    /// | Condition | Decoration |
-    /// |---|---|
-    /// | `biome.has_trees()` && tree noise > density | Tree (18% gate via hash). |
-    /// | Forest or Swamp, 1-in-7 trees | Large tree variant. |
-    /// | Desert, hash < 3% | Cactus on sand. |
-    /// | Desert, hash 3–10% | Dead bush on sand. |
-    /// | Mountains Y > 110, hash < 8% | Surface Gravel scree. |
-    /// | Mountains Y > 145, stone surface | Snow cap block. |
     fn generate_decorations(
         &self,
         chunk: &mut Chunk,
@@ -1347,7 +1027,6 @@ impl ChunkGenerator {
     ) {
         let base_x = cx * CHUNK_SIZE;
         let base_z = cz * CHUNK_SIZE;
-        
         let margin = 4;
 
         for lx in margin..(CHUNK_SIZE - margin) {
@@ -1358,28 +1037,20 @@ impl ChunkGenerator {
                 let height = height_map[lx as usize][lz as usize];
                 let hash   = self.position_hash(world_x, world_z);
 
-                
                 if height <= SEA_LEVEL {
                     continue;
                 }
 
-                
                 if biome.has_trees() {
                     let tree_noise = self
                         .noise_trees
                         .get_noise_2d(world_x as f32, world_z as f32);
-                    
-                    
                     let density_threshold = biome.tree_density() as f32;
 
                     if tree_noise > density_threshold {
-                        
-                        
                         if hash % 100 < 18 {
                             let ground = chunk.get_block(lx, height - 1, lz);
                             if matches!(ground, BlockType::Grass | BlockType::Dirt) {
-                                
-                                
                                 let is_large = hash % 7 == 0
                                     && matches!(biome, Biome::Forest | Biome::Swamp);
                                 if self.can_place_tree(chunk, lx, height, lz, is_large) {
@@ -1390,7 +1061,6 @@ impl ChunkGenerator {
                     }
                 }
 
-                
                 if biome == Biome::Desert {
                     if hash % 100 < 3 {
                         let ground = chunk.get_block(lx, height - 1, lz);
@@ -1405,9 +1075,6 @@ impl ChunkGenerator {
                     }
                 }
 
-                
-                
-                
                 if biome == Biome::Mountains && height > 110 {
                     if hash % 100 < 8 {
                         let top = chunk.get_block(lx, height - 1, lz);
@@ -1417,7 +1084,6 @@ impl ChunkGenerator {
                     }
                 }
 
-                
                 if biome == Biome::Mountains && height > 145 {
                     if chunk.get_block(lx, height - 1, lz) == BlockType::Stone {
                         chunk.set_block(lx, height - 1, lz, BlockType::Snow);
@@ -1429,15 +1095,6 @@ impl ChunkGenerator {
 
     
 
-    /// Returns `true` if a tree can be placed with its base at `(lx, y, lz)`.
-    ///
-    /// A tree is rejected if:
-    /// - The ground block is not Grass or Dirt.
-    /// - Any of the 3×3 ground neighbors contains a hard block (Stone, Gravel,
-    ///   Sand, Water, Ice) — prevents trees on cliff edges or shorelines.
-    /// - Another tree's trunk (`Wood`) is within `min_distance` blocks
-    ///   (3 for normal trees, 5 for large trees) in the XZ plane and within
-    ///   Y ±8 of the base — prevents overlapping canopies.
     fn can_place_tree(
         &self,
         chunk: &Chunk,
@@ -1449,7 +1106,6 @@ impl ChunkGenerator {
             return false;
         }
 
-        
         for dx in -1..=1 {
             for dz in -1..=1 {
                 let nx = lx + dx;
@@ -1470,7 +1126,6 @@ impl ChunkGenerator {
             }
         }
 
-        
         let min_distance = if is_large { 5 } else { 3 };
         for dx in -min_distance..=min_distance {
             for dz in -min_distance..=min_distance {
@@ -1481,7 +1136,6 @@ impl ChunkGenerator {
                     continue;
                 }
 
-                
                 for dy in -1..=8 {
                     let check_y = y + dy;
                     if check_y < 0 || check_y >= WORLD_HEIGHT {
@@ -1496,26 +1150,6 @@ impl ChunkGenerator {
         true
     }
 
-    /// Places a tree with its base at `(lx, y, lz)`.
-    ///
-    /// # Trunk
-    /// The trunk is `trunk_height` blocks tall:
-    /// - Small trees: 5 or 6 blocks (seeded by position hash).
-    /// - Large trees: always 8 blocks.
-    ///
-    /// The grass block directly beneath the trunk is replaced with Dirt to
-    /// prevent a floating grass block when the trunk is later removed by mining.
-    ///
-    /// # Canopy
-    /// Leaves fill a square slab at each level from `leaf_start` to
-    /// `trunk_height` (inclusive), with radius `leaf_radius` (2 for small,
-    /// 3 for large).  The top two levels use `radius − 1` to taper the crown.
-    ///
-    /// Corner blocks are stochastically pruned to round the canopy:
-    /// - Standard biomes: corners skipped 50% of the time.
-    /// - Swamp biomes: corners skipped 67% of the time for a wispier look.
-    ///
-    /// A single leaf cap is placed one block above the topmost trunk block.
     fn place_tree(
         &self,
         chunk: &mut Chunk,
@@ -1526,16 +1160,13 @@ impl ChunkGenerator {
         let trunk_height = if is_large {
             8
         } else {
-            5 + (self.position_hash(lx, lz) % 2) as i32 
+            5 + (self.position_hash(lx, lz) % 2) as i32
         };
 
-        
-        
         if chunk.get_block(lx, y - 1, lz) == BlockType::Grass {
             chunk.set_block(lx, y - 1, lz, BlockType::Dirt);
         }
 
-        
         for dy in 0..trunk_height {
             chunk.set_block(lx, y + dy, lz, BlockType::Wood);
         }
@@ -1543,9 +1174,7 @@ impl ChunkGenerator {
         let leaf_start  = if is_large { 4 } else { 3 };
         let leaf_radius = if is_large { 3 } else { 2 };
 
-        
         for dy in leaf_start..=trunk_height {
-            
             let radius = if dy >= trunk_height - 1 {
                 leaf_radius - 1
             } else {
@@ -1560,16 +1189,13 @@ impl ChunkGenerator {
                         if ny < WORLD_HEIGHT {
                             let existing = chunk.get_block(nx, ny, nz);
                             if existing == BlockType::Air || existing == BlockType::Leaves {
-                                
                                 let corner_skip = match biome {
                                     Biome::Swamp => {
-                                        
                                         dx.abs() == radius
                                             && dz.abs() == radius
                                             && self.position_hash(nx, nz) % 3 != 0
                                     }
                                     _ => {
-                                        
                                         dx.abs() == radius
                                             && dz.abs() == radius
                                             && self.position_hash(nx, nz) % 2 == 0
@@ -1585,7 +1211,6 @@ impl ChunkGenerator {
             }
         }
 
-        
         let top_y = y + trunk_height;
         if top_y < WORLD_HEIGHT {
             let existing = chunk.get_block(lx, top_y, lz);
@@ -1595,13 +1220,8 @@ impl ChunkGenerator {
         }
     }
 
-    /// Places a cactus of height 2–4 blocks at `(lx, y, lz)`.
-    ///
-    /// Height is randomized per-column in `[2, 4]` using the position hash.
-    /// Each block is placed only if `y + dy < WORLD_HEIGHT` to prevent
-    /// out-of-bounds writes near the world ceiling.
     fn place_cactus(&self, chunk: &mut Chunk, lx: i32, y: i32, lz: i32) {
-        let height = 2 + (self.position_hash(lx, lz) % 3) as i32; 
+        let height = 2 + (self.position_hash(lx, lz) % 3) as i32;
         for dy in 0..height {
             if y + dy < WORLD_HEIGHT {
                 chunk.set_block(lx, y + dy, lz, BlockType::Cactus);
@@ -1611,16 +1231,6 @@ impl ChunkGenerator {
 
     
 
-    /// Computes a deterministic pseudo-random `u32` from a 2-D block position.
-    ///
-    /// Uses the FNV-style multiplicative hash with large prime constants
-    /// (`73856093` and `19349663`) chosen to spread bits well across the
-    /// XZ plane.  The seed is incorporated so different worlds produce
-    /// different decoration patterns at the same coordinates.
-    ///
-    /// # Usage
-    /// Gating decoration placement (trees, cacti, stalagmites) and randomizing
-    /// block variants (gravel vs. clay, dirt depth, cactus height).
     fn position_hash(&self, x: i32, z: i32) -> u32 {
         let mut hash = self.seed;
         hash = hash.wrapping_add(x as u32).wrapping_mul(73856093);
@@ -1628,11 +1238,6 @@ impl ChunkGenerator {
         hash ^ (hash >> 16)
     }
 
-    /// Computes a deterministic pseudo-random `u32` from a 3-D block position.
-    ///
-    /// Extends `position_hash` with a Y component using a third prime
-    /// (`83492791`) so that the result varies vertically (required for
-    /// probabilistic bedrock and per-block cave-decoration decisions).
     fn position_hash_3d(&self, x: i32, y: i32, z: i32) -> u32 {
         let mut hash = self.seed;
         hash = hash.wrapping_add(x as u32).wrapping_mul(73856093);
@@ -1647,13 +1252,7 @@ impl ChunkGenerator {
 
 
 impl Clone for ChunkGenerator {
-    /// Clones the generator by reconstructing it from the original seed.
-    ///
-    /// `FastNoiseLite` does not implement `Clone`, so deriving it is not
-    /// possible.  Recreating via `new` is equivalent and cheap — each
-    /// sampler is initialized with trivial integer state.
     fn clone(&self) -> Self {
         ChunkGenerator::new(self.seed)
     }
 }
-
