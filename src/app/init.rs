@@ -107,7 +107,7 @@ impl State {
 
         
         
-        let backend = wgpu::Backends::all();
+        let backend = wgpu::Backends::DX12;
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: backend,
