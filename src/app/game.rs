@@ -136,6 +136,7 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
     let window = WindowBuilder::new()
         .with_title("crust 256x256 | Loading...")
         .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
+        .with_transparent(true)
         .build(&event_loop)
         .expect("Failed to create window");
 
@@ -245,11 +246,18 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                                 KeyCode::Enter => {
                                     state.connect_to_server();
                                 }
-                                KeyCode::Escape => {
-                                    
-                                    
-                                    state.game_state = GameState::Playing;
-                                }
+                            KeyCode::Escape => {
+                                
+                                
+                                
+                                state.game_state = GameState::Playing;
+                                state.mouse_captured = true;
+                                let _ = state
+                                    .window
+                                    .set_cursor_grab(CursorGrabMode::Confined)
+                                    .or_else(|_| state.window.set_cursor_grab(CursorGrabMode::Locked));
+                                state.window.set_cursor_visible(false);
+                            }
                                 KeyCode::Backspace => {
                                     state.menu_state.handle_backspace();
                                 }
@@ -280,16 +288,15 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                             KeyCode::ShiftLeft  => state.input.sprint = pressed,
 
                             KeyCode::Escape if pressed => {
-                                if state.mouse_captured {
-                                    
-                                    
-                                    state.mouse_captured = false;
-                                    let _ = state.window.set_cursor_grab(CursorGrabMode::None);
-                                    state.window.set_cursor_visible(true);
-                                } else {
-                                    
-                                    state.game_state = GameState::Menu;
-                                }
+                                
+                                
+                                
+                                state.game_state = GameState::Menu;
+                                state.mouse_captured = false;
+                                state.input = Default::default();
+                                state.digging = Default::default();
+                                let _ = state.window.set_cursor_grab(CursorGrabMode::None);
+                                state.window.set_cursor_visible(true);
                             }
 
                             KeyCode::F11 if pressed => {
@@ -441,7 +448,6 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                
                 Event::WindowEvent {
                     event: WindowEvent::MouseWheel { delta, .. },
                     ..

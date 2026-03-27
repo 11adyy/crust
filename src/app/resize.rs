@@ -101,8 +101,8 @@ impl State {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
@@ -188,11 +188,20 @@ impl State {
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Depth Resolve Bind Group"),
                     layout: &self.depth_resolve_pipeline.get_bind_group_layout(0),
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        
-                        resource: wgpu::BindingResource::TextureView(&self.depth_texture),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&self.depth_texture),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&self.hiz_mips[0]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&self.ssr_depth_view),
+                        },
+                    ],
                 });
 
             
@@ -288,11 +297,8 @@ impl State {
                     format: wgpu::TextureFormat::R32Float,
                     
                     
-                    
-                    
                     usage: wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 });
 

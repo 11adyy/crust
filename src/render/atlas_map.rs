@@ -65,9 +65,6 @@ fn create_atlas(tile_size: u32, textures: &[Vec<u8>]) -> Atlas {
     let mut data = vec![0u8; (atlas_size * atlas_size * 4) as usize];
 
     for (i, tex) in textures.iter().enumerate() {
-        
-        
-        
         let tile_col = i as u32 % tiles_per_row;
         let tile_row = i as u32 / tiles_per_row;
 

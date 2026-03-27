@@ -16,7 +16,7 @@ use crate::ui::menu::{GameState, MenuState};
 use crust::chunk_loader::ChunkLoader;
 use crust::{
     CSM_SHADOW_MAP_SIZE, Camera, DiggingState, IndirectManager, InputState, OutlineVertex,
-    SEA_LEVEL, ShadowConfig, Uniforms, Vertex, World, build_crosshair,
+    RENDER_DISTANCE, SEA_LEVEL, ShadowConfig, Uniforms, Vertex, World, build_crosshair,
 };
 
 use super::state::State;
@@ -208,7 +208,26 @@ impl State {
             
             
             present_mode: wgpu::PresentMode::Immediate,
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode: surface_caps
+                .alpha_modes
+                .iter()
+                .copied()
+                .find(|mode| matches!(mode, wgpu::CompositeAlphaMode::PreMultiplied))
+                .or_else(|| {
+                    surface_caps
+                        .alpha_modes
+                        .iter()
+                        .copied()
+                        .find(|mode| matches!(mode, wgpu::CompositeAlphaMode::PostMultiplied))
+                })
+                .or_else(|| {
+                    surface_caps
+                        .alpha_modes
+                        .iter()
+                        .copied()
+                        .find(|mode| matches!(mode, wgpu::CompositeAlphaMode::Inherit))
+                })
+                .unwrap_or(surface_caps.alpha_modes[0]),
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -646,8 +665,8 @@ impl State {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let ssr_depth_view = ssr_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -785,7 +804,7 @@ impl State {
                         binding: 6,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
@@ -1307,17 +1326,21 @@ impl State {
         
         
         
-        log(LogLevel::Info, "Generating world...");
+        log(LogLevel::Info, "Generating world in background...");
         let world = Arc::new(parking_lot::RwLock::new(World::new()));
 
         
         
         let spawn = world.read().find_spawn_point();
         let camera = Camera::new(spawn);
-        log(
-            LogLevel::Info,
-            &format!("World generated! Spawn: {:?}", spawn),
-        );
+
+        {
+            let mut world = world.write();
+            world.generate_chunks_in_radius(0, 0, 2);
+        }
+        World::spawn_chunks_in_ring_async(Arc::clone(&world), 0, 0, 2, RENDER_DISTANCE);
+
+        log(LogLevel::Info, &format!("Spawn selected: {:?}", spawn));
 
         let seed = world.read().seed;
         
@@ -1423,7 +1446,6 @@ impl State {
         
         
         
-
         let depth_resolve_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Depth Resolve Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/depth_resolve.wgsl").into()),
@@ -1431,25 +1453,39 @@ impl State {
         let depth_resolve_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Depth Resolve Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: true, 
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: true, 
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::R32Float,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::R32Float,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
             });
-        let depth_resolve_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Depth Resolve Bind Group"),
-            layout: &depth_resolve_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&depth_texture),
-            }],
-        });
         let depth_resolve_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Depth Resolve Pipeline Layout"),
@@ -1457,45 +1493,13 @@ impl State {
                 immediate_size: 0,
             });
         let depth_resolve_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Depth Resolve Pipeline"),
                 layout: Some(&depth_resolve_pipeline_layout),
                 cache: None,
-                vertex: wgpu::VertexState {
-                    module: &depth_resolve_shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    
-                    
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &depth_resolve_shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    
-                    
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::R32Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    
-                    
-                    depth_compare: wgpu::CompareFunction::Always,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(), 
-                multiview_mask: None,
+                module: &depth_resolve_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
             });
 
         
@@ -1665,8 +1669,7 @@ impl State {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R32Float,
             usage: wgpu::TextureUsages::STORAGE_BINDING   
-                | wgpu::TextureUsages::TEXTURE_BINDING    
-                | wgpu::TextureUsages::RENDER_ATTACHMENT, 
+                | wgpu::TextureUsages::TEXTURE_BINDING,   
             view_formats: &[],
         });
 
@@ -1756,6 +1759,25 @@ impl State {
                 })
             })
             .collect::<Vec<_>>();
+
+        let depth_resolve_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Depth Resolve Bind Group"),
+            layout: &depth_resolve_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&depth_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&hiz_mips[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&ssr_depth_view),
+                },
+            ],
+        });
 
         
         
