@@ -533,6 +533,99 @@ impl State {
         
         
         
+        if self.game_state != GameState::Menu {
+            let mut depth_prepass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Terrain Depth Prepass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            depth_prepass.set_pipeline(&self.terrain_depth_pipeline);
+            depth_prepass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            depth_prepass.set_bind_group(1, &self.terrain_gbuffer_bind_group, &[]);
+            depth_prepass.set_bind_group(2, &self.terrain_shadow_output_bind_group, &[]);
+            depth_prepass.set_bind_group(3, &self.shadow_mask_bind_group, &[]);
+            depth_prepass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
+            depth_prepass.set_index_buffer(
+                self.indirect_manager.index_buffer().slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            if self.supports_indirect_count {
+                depth_prepass.multi_draw_indexed_indirect_count(
+                    self.indirect_manager.draw_commands(),
+                    0,
+                    self.indirect_manager.visible_count_buffer(),
+                    0,
+                    self.indirect_manager.active_count(),
+                );
+            } else {
+                depth_prepass.multi_draw_indexed_indirect(
+                    self.indirect_manager.draw_commands(),
+                    0,
+                    self.indirect_manager.active_count(),
+                );
+            }
+        }
+
+        
+        
+        
+        if self.game_state != GameState::Menu {
+            let mut depth_resolve_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Depth Resolve Compute Pass (Prepass)"),
+                timestamp_writes: None,
+            });
+            depth_resolve_pass.set_pipeline(&self.depth_resolve_pipeline);
+            depth_resolve_pass.set_bind_group(0, &self.depth_resolve_bind_group, &[]);
+            depth_resolve_pass.dispatch_workgroups(
+                (self.config.width + 15) / 16,
+                (self.config.height + 15) / 16,
+                1,
+            );
+        }
+
+        
+        if self.game_state != GameState::Menu {
+            let mut shadow_mask_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Shadow Mask Compute Pass"),
+                timestamp_writes: None,
+            });
+            shadow_mask_pass.set_pipeline(&self.shadow_mask_pipeline);
+            shadow_mask_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            shadow_mask_pass.set_bind_group(1, &self.shadow_mask_input_bind_group, &[]);
+            shadow_mask_pass.set_bind_group(2, &self.shadow_mask_output_bind_group, &[]);
+            shadow_mask_pass.dispatch_workgroups(
+                (self.config.width + 7) / 8,
+                (self.config.height + 7) / 8,
+                1,
+            );
+        }
+
+        
+        
+        for i in 0..self.hiz_bind_groups.len() {
+            let mut hiz_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Hi-Z Generation Pass Level"),
+                timestamp_writes: None,
+            });
+            hiz_pass.set_pipeline(&self.hiz_pipeline);
+            hiz_pass.set_bind_group(0, &self.hiz_bind_groups[i], &[]);
+            let div = 1 << (i + 1);
+            let mip_width = (self.hiz_size[0] / div).max(1);
+            let mip_height = (self.hiz_size[1] / div).max(1);
+            hiz_pass.dispatch_workgroups((mip_width + 15) / 16, (mip_height + 15) / 16, 1);
+        }
+
+        
+        
+        
         
         {
             let opaque_resolve_target = if self.game_state == GameState::Menu {
@@ -563,7 +656,9 @@ impl State {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0), 
+                        
+                        
+                        load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -644,46 +739,6 @@ impl State {
             opaque_pass
                 .set_index_buffer(self.sun_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             opaque_pass.draw_indexed(0..6, 0, 0..1);
-        }
-
-        
-        
-        
-        
-        {
-            let mut depth_resolve_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Depth Resolve Compute Pass"),
-                timestamp_writes: None,
-            });
-            depth_resolve_pass.set_pipeline(&self.depth_resolve_pipeline);
-            depth_resolve_pass.set_bind_group(0, &self.depth_resolve_bind_group, &[]);
-            depth_resolve_pass.dispatch_workgroups(
-                (self.config.width + 15) / 16,
-                (self.config.height + 15) / 16,
-                1,
-            );
-        }
-
-        
-        
-        
-        
-        
-        
-        for i in 0..self.hiz_bind_groups.len() {
-            let mut hiz_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Hi-Z Generation Pass Level"),
-                timestamp_writes: None,
-            });
-            hiz_pass.set_pipeline(&self.hiz_pipeline);
-            hiz_pass.set_bind_group(0, &self.hiz_bind_groups[i], &[]);
-            
-            
-            
-            let div = 1 << (i + 1);
-            let mip_width = (self.hiz_size[0] / div).max(1);
-            let mip_height = (self.hiz_size[1] / div).max(1);
-            hiz_pass.dispatch_workgroups((mip_width + 15) / 16, (mip_height + 15) / 16, 1);
         }
 
         
