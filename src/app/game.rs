@@ -6,7 +6,7 @@ use winit::{
     event::{DeviceEvent, ElementState, Event, KeyEvent, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::{CursorGrabMode, WindowBuilder},
+    window::{CursorGrabMode, WindowBuilder, Fullscreen},
 };
 
 use crust::{
@@ -132,13 +132,35 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
 
     
 
-    let event_loop = EventLoop::new().expect("Failed to create event loop");
-    let window = WindowBuilder::new()
-        .with_title("crust 256x256 | Loading...")
+    
+    
+    
+    let event_loop = match EventLoop::new() {
+        
+        
+        Ok(ev) => ev,
+        Err(e) => {
+            log(LogLevel::Error, &format!("Failed to create event loop: {}", e));
+            return Err(Box::new(e) as Box<dyn std::error::Error>);
+        }
+    };
+
+    
+    
+    let window = match WindowBuilder::new()
+        .with_title("crust")
         .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
         .with_transparent(true)
+        
+        .with_fullscreen(Some(Fullscreen::Borderless(None)))
         .build(&event_loop)
-        .expect("Failed to create window");
+    {
+        Ok(w) => w,
+        Err(e) => {
+            log(LogLevel::Error, &format!("Failed to create window: {}", e));
+            return Err(Box::new(e) as Box<dyn std::error::Error>);
+        }
+    };
 
     
     
@@ -197,7 +219,7 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                         
                         
                         Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
-                        Err(e) => eprintln!("Render error: {:?}", e),
+                        Err(e) => log(LogLevel::Error, &format!("Render error: {:?}", e)),
                     }
 
                     
@@ -319,7 +341,7 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                                     1 => "SSR",
                                     _ => "Unknown",
                                 };
-                                println!("Reflection mode: {}", mode_name);
+                                log(LogLevel::Info, &format!("Reflection mode: {}", mode_name));
                             }
 
                             
@@ -340,16 +362,16 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                                     (state.camera.yaw, state.camera.pitch),
                                 );
                                 if let Err(e) = save_world(DEFAULT_WORLD_FILE, &saved) {
-                                    eprintln!("Failed to save world: {}", e);
+                                    log(LogLevel::Error, &format!("Failed to save world: {}", e));
                                 } else {
-                                    println!("World saved to {}", DEFAULT_WORLD_FILE);
+                                    log(LogLevel::Info, &format!("World saved to {}", DEFAULT_WORLD_FILE));
                                 }
                             }
 
                             
                             KeyCode::F9 if pressed => match load_world(DEFAULT_WORLD_FILE) {
                                 Ok(saved) => {
-                                    println!("Regenerating world with seed {}...", saved.seed);
+                                    log(LogLevel::Info, &format!("Regenerating world with seed {}...", saved.seed));
 
                                     
                                     
@@ -423,12 +445,12 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                     }
-                                    println!(
+                                    log(LogLevel::Info, &format!(
                                         "World loaded from {} (seed: {})",
                                         DEFAULT_WORLD_FILE, saved.seed
-                                    );
+                                    ));
                                 }
-                                Err(e) => println!("Error loading: {}", e),
+                                Err(e) => log(LogLevel::Error, &format!("Error loading: {}", e)),
                             },
 
                             

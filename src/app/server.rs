@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::multiplayer::protocol::Packet;
 use crate::multiplayer::tcp::TcpServer;
+use crate::logger::{log, LogLevel};
 
 /// Runs a standalone dedicated multiplayer server that accepts TCP connections
 /// and relays packets between all connected clients.
@@ -46,8 +47,8 @@ pub async fn run_dedicated_server(addr: &str) {
             
             
             let server = Arc::new(server_inst);
-            println!("Server is now listening on {}", addr);
-            println!("Waiting for connections...");
+            log(LogLevel::Info, &format!("Server successfully bound to {}", addr));
+            log(LogLevel::Info, "Waiting for connections...");
             
             
             let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -59,7 +60,7 @@ pub async fn run_dedicated_server(addr: &str) {
             loop {
                 match server.accept().await {
                     Ok((id, conn)) => {
-                        println!("Client {} connected from {}", id, conn.addr());
+                        log(LogLevel::Info, &format!("Accepted connection from {} with assigned ID {}", conn.addr(), id));
                         
                         
                         let server_clone = server.clone();
@@ -129,8 +130,7 @@ pub async fn run_dedicated_server(addr: &str) {
                                     
                                     
                                     Err(_) => {
-                                        println!("Client {} disconnected", id);
-
+                                        log(LogLevel::Info, &format!("Connection error with client {}; treating as disconnect", id));
                                         
                                         
                                         
@@ -158,14 +158,14 @@ pub async fn run_dedicated_server(addr: &str) {
                     Err(e) => {
                         
                         
-                        eprintln!("Accept error: {}", e);
+                        log(LogLevel::Error, &format!("Accept error: {}", e));
                     }
                 }
             }
         }
 
         Err(e) => {
-            eprintln!("Failed to start server: {}", e);
+            log(LogLevel::Error, &format!("Failed to bind server to {}: {}", addr, e));
         }
     }
 }

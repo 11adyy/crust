@@ -2,6 +2,7 @@ use crate::multiplayer::player::RemotePlayer;
 use crate::multiplayer::protocol::{Packet, decode_pitch, decode_yaw};
 use crate::multiplayer::tcp::TcpClient;
 use crate::ui::menu::{GameState, MenuState};
+use crate::logger::{log, LogLevel};
 use std::time::Instant;
 use winit::window::Window;
 
@@ -81,8 +82,7 @@ pub fn connect_to_server(
 
         match result {
             Ok(client) => {
-                println!("Connected to server: {}", addr);
-
+                log(LogLevel::Info, &format!("Successfully connected to server at {}", addr));
                 
                 
                 
@@ -131,7 +131,7 @@ pub fn connect_to_server(
                 }
             }
             Err(e) => {
-                eprintln!("Failed to connect: {}", e);
+                log(LogLevel::Error, &format!("Failed to connect: {}", e));
                 menu_state.set_error(&format!("Connection failed: {}", e));
                 
                 
@@ -237,7 +237,7 @@ pub fn update_network(
                 Packet::ConnectAck { success, player_id } => {
                     if success {
                         *my_player_id = player_id;
-                        println!("Joined as Player ID: {}", player_id);
+                        log(LogLevel::Info, &format!("Server accepted connection; assigned Player ID {}", player_id));
                         *game_state = GameState::Playing;
 
                         
@@ -303,7 +303,7 @@ pub fn update_network(
                 
                 
                 Packet::Connect { player_id, username } => {
-                    println!("Player joined: {} (ID: {})", username, player_id);
+                    log(LogLevel::Info, &format!("Received Connect packet: player_id={}, username={}", player_id, username));
                     if let Some(player) = remote_players.get_mut(&player_id) {
                         player.username = username;
                     } else {
@@ -326,7 +326,7 @@ pub fn update_network(
                 
                 Packet::Disconnect { player_id } => {
                     remote_players.remove(&player_id);
-                    println!("Player left: ID {}", player_id);
+                    log(LogLevel::Info, &format!("Received Disconnect packet: player_id={}", player_id));
                 }
 
                 
