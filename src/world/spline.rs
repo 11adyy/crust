@@ -60,7 +60,7 @@ impl TerrainSpline {
         let points = pairs
             .iter()
             .map(|(i, o)| SplinePoint {
-                input:  *i,
+                input: *i,
                 output: *o,
             })
             .collect();
@@ -96,7 +96,7 @@ impl TerrainSpline {
         }
 
         let first = &self.points[0];
-        let last  = &self.points[self.points.len() - 1];
+        let last = &self.points[self.points.len() - 1];
 
         
         if t <= first.input {
@@ -158,16 +158,16 @@ impl TerrainSpline {
     /// |  1.00  | 200             | Extreme mountains  |
     pub fn continental() -> Self {
         Self::new(&[
-            (-1.05, 25.0),  
-            (-0.5,  40.0),  
-            (-0.2,  58.0),  
-            (-0.1,  62.0),  
-            (0.0,   68.0),  
-            (0.2,   76.0),  
-            (0.4,   90.0),  
-            (0.6,  120.0),  
-            (0.8,  160.0),  
-            (1.0,  200.0),  
+            (-1.05, 25.0), 
+            (-0.5, 40.0),  
+            (-0.2, 58.0),  
+            (-0.1, 62.0),  
+            (0.0, 68.0),   
+            (0.2, 76.0),   
+            (0.4, 90.0),   
+            (0.6, 120.0),  
+            (0.8, 160.0),  
+            (1.0, 200.0),  
         ])
     }
 
@@ -190,9 +190,9 @@ impl TerrainSpline {
         Self::new(&[
             (-1.0, 1.5), 
             (-0.5, 1.2), 
-            (0.0,  1.0), 
-            (0.5,  0.6), 
-            (1.0,  0.3), 
+            (0.0, 1.0),  
+            (0.5, 0.6),  
+            (1.0, 0.3),  
         ])
     }
 
@@ -219,9 +219,9 @@ impl TerrainSpline {
         Self::new(&[
             (-1.0, -40.0), 
             (-0.5, -15.0), 
-            (0.0,    0.0), 
-            (0.5,   25.0), 
-            (1.0,   80.0), 
+            (0.0, 0.0),    
+            (0.5, 25.0),   
+            (1.0, 80.0),   
         ])
     }
 }

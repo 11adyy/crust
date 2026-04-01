@@ -110,7 +110,7 @@ impl State {
         let backend = wgpu::Backends::all();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: backend,          
+            backends: backend,
             ..Default::default()
         });
 
@@ -471,7 +471,11 @@ impl State {
                 wgpu::TexelCopyBufferInfo {
                     buffer: &device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Shadow Mask Init Buffer"),
-                        contents: bytemuck::cast_slice(&vec![1.0f32; (config.width * config.height) as usize]),
+                        contents: bytemuck::cast_slice(&vec![
+                            1.0f32;
+                            (config.width * config.height)
+                                as usize
+                        ]),
                         usage: wgpu::BufferUsages::COPY_SRC,
                     }),
                     layout: wgpu::TexelCopyBufferLayout {
@@ -1010,7 +1014,7 @@ impl State {
             bind_group_layouts: &[
                 &uniform_bind_group_layout,               
                 &terrain_gbuffer_bind_group_layout,       
-                &terrain_shadow_output_bind_group_layout,  
+                &terrain_shadow_output_bind_group_layout, 
                 &shadow_mask_bind_group_layout,           
             ],
             immediate_size: 0,
@@ -1027,9 +1031,9 @@ impl State {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Shadow Mask Pipeline Layout"),
                 bind_group_layouts: &[
-                    &uniform_bind_group_layout,              
-                    &terrain_gbuffer_bind_group_layout,      
-                    &shadow_mask_output_bind_group_layout,   
+                    &uniform_bind_group_layout,            
+                    &terrain_gbuffer_bind_group_layout,    
+                    &shadow_mask_output_bind_group_layout, 
                 ],
                 immediate_size: 0,
             });
@@ -1783,7 +1787,7 @@ impl State {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R32Float,
             usage: wgpu::TextureUsages::STORAGE_BINDING   
-                | wgpu::TextureUsages::TEXTURE_BINDING,   
+                | wgpu::TextureUsages::TEXTURE_BINDING, 
             view_formats: &[],
         });
 

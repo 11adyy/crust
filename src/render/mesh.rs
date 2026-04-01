@@ -94,10 +94,10 @@ pub fn add_greedy_quad(
     
     
     
+
     
     
-    
-    
+
     let w = width as u8;
     let h = height as u8;
 
@@ -220,17 +220,47 @@ pub fn build_block_outline(
     
     let face_corners: [[[f32; 3]; 4]; 6] = [
         
-        [[max_x, min_y, min_z], [max_x, max_y, min_z], [max_x, max_y, max_z], [max_x, min_y, max_z]],
+        [
+            [max_x, min_y, min_z],
+            [max_x, max_y, min_z],
+            [max_x, max_y, max_z],
+            [max_x, min_y, max_z],
+        ],
         
-        [[min_x, min_y, max_z], [min_x, max_y, max_z], [min_x, max_y, min_z], [min_x, min_y, min_z]],
+        [
+            [min_x, min_y, max_z],
+            [min_x, max_y, max_z],
+            [min_x, max_y, min_z],
+            [min_x, min_y, min_z],
+        ],
         
-        [[min_x, max_y, min_z], [min_x, max_y, max_z], [max_x, max_y, max_z], [max_x, max_y, min_z]],
+        [
+            [min_x, max_y, min_z],
+            [min_x, max_y, max_z],
+            [max_x, max_y, max_z],
+            [max_x, max_y, min_z],
+        ],
         
-        [[min_x, min_y, max_z], [min_x, min_y, min_z], [max_x, min_y, min_z], [max_x, min_y, max_z]],
+        [
+            [min_x, min_y, max_z],
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [max_x, min_y, max_z],
+        ],
         
-        [[min_x, min_y, max_z], [max_x, min_y, max_z], [max_x, max_y, max_z], [min_x, max_y, max_z]],
+        [
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [max_x, max_y, max_z],
+            [min_x, max_y, max_z],
+        ],
         
-        [[max_x, min_y, min_z], [min_x, min_y, min_z], [min_x, max_y, min_z], [max_x, max_y, min_z]],
+        [
+            [max_x, min_y, min_z],
+            [min_x, min_y, min_z],
+            [min_x, max_y, min_z],
+            [max_x, max_y, min_z],
+        ],
     ];
 
     let mut vertices = Vec::new();
@@ -266,14 +296,7 @@ pub fn build_block_outline(
             uv: [half_width_px, 0.0],
             tex_index: 0.0,
         });
-        indices.extend_from_slice(&[
-            base,
-            base + 1,
-            base + 2,
-            base,
-            base + 2,
-            base + 3,
-        ]);
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     };
 
     for (face_idx, &visible) in visible_faces.iter().enumerate() {

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::logger::{LogLevel, log};
 use crate::multiplayer::protocol::Packet;
 use crate::multiplayer::tcp::TcpServer;
-use crate::logger::{log, LogLevel};
 
 /// Runs a standalone dedicated multiplayer server that accepts TCP connections
 /// and relays packets between all connected clients.
@@ -47,20 +47,32 @@ pub async fn run_dedicated_server(addr: &str) {
             
             
             let server = Arc::new(server_inst);
-            log(LogLevel::Info, &format!("Server successfully bound to {}", addr));
+            log(
+                LogLevel::Info,
+                &format!("Server successfully bound to {}", addr),
+            );
             log(LogLevel::Info, "Waiting for connections...");
             
             
             let _ = std::io::Write::flush(&mut std::io::stdout());
 
-            
+            let server_seed: u32 = rand::random();
+            log(LogLevel::Info, &format!("Server world seed: {}", server_seed));
+
             
             
             
             loop {
                 match server.accept().await {
                     Ok((id, conn)) => {
-                        log(LogLevel::Info, &format!("Accepted connection from {} with assigned ID {}", conn.addr(), id));
+                        log(
+                            LogLevel::Info,
+                            &format!(
+                                "Accepted connection from {} with assigned ID {}",
+                                conn.addr(),
+                                id
+                            ),
+                        );
                         
                         
                         let server_clone = server.clone();
@@ -89,6 +101,7 @@ pub async fn run_dedicated_server(addr: &str) {
                                                 let ack = Packet::ConnectAck {
                                                     success: true,
                                                     player_id: id,
+                                                    seed: server_seed,
                                                 };
                                                 let _ = conn.send(&ack).await;
                                             }
@@ -130,7 +143,13 @@ pub async fn run_dedicated_server(addr: &str) {
                                     
                                     
                                     Err(_) => {
-                                        log(LogLevel::Info, &format!("Connection error with client {}; treating as disconnect", id));
+                                        log(
+                                            LogLevel::Info,
+                                            &format!(
+                                                "Connection error with client {}; treating as disconnect",
+                                                id
+                                            ),
+                                        );
                                         
                                         
                                         
@@ -165,7 +184,10 @@ pub async fn run_dedicated_server(addr: &str) {
         }
 
         Err(e) => {
-            log(LogLevel::Error, &format!("Failed to bind server to {}: {}", addr, e));
+            log(
+                LogLevel::Error,
+                &format!("Failed to bind server to {}: {}", addr, e),
+            );
         }
     }
 }

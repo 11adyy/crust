@@ -7,9 +7,9 @@ use crust::{
     build_block_outline, build_player_model, extract_frustum_planes,
 };
 
+use crate::logger::{LogLevel, log};
 use crate::multiplayer::player::queue_remote_players_labels;
 use crate::ui::menu::{GameState, MenuField, MenuLayout, Rect};
-use crate::logger::{log, LogLevel};
 
 use super::init::OPENGL_TO_WGPU_MATRIX;
 use super::init::frustum_planes_to_array;
@@ -745,9 +745,13 @@ impl State {
         
         
         
-        let resolve_target = &self.scene_color_view;
+        let resolve_target = if self.game_state == GameState::Menu {
+            &view
+        } else {
+            &self.scene_color_view
+        };
 
-        if self.game_state != GameState::Menu {
+        {
             let mut transparent_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Transparent Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -974,7 +978,15 @@ impl State {
 
             
             let mut vertices = Vec::with_capacity(8);
-            for (i, (x, y)) in [(-bar_width, bar_y - bar_height), (bar_width, bar_y - bar_height), (bar_width, bar_y + bar_height), (-bar_width, bar_y + bar_height)].into_iter().enumerate() {
+            for (i, (x, y)) in [
+                (-bar_width, bar_y - bar_height),
+                (bar_width, bar_y - bar_height),
+                (bar_width, bar_y + bar_height),
+                (-bar_width, bar_y + bar_height),
+            ]
+            .into_iter()
+            .enumerate()
+            {
                 vertices.push(Vertex {
                     position: [x, y, 0.0],
                     packed: Vertex::pack_ui(
