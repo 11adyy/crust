@@ -1,5 +1,5 @@
 use crate::core::vertex::Vertex;
-use crate::logger::{LogLevel, log};
+use crate::world::generator::ChunkGenerator;
 use crate::world::World;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use std::collections::HashSet;
@@ -64,23 +64,31 @@ impl MeshLoader {
     pub fn new(world: Arc<parking_lot::RwLock<World>>, worker_count: usize) -> Self {
         let (request_tx, request_rx) = bounded::<MeshRequest>(256);
         let (result_tx, result_rx) = bounded::<MeshResult>(256);
+        let seed = world.read().seed;
 
         for i in 0..worker_count {
             let rx = request_rx.clone();
             let tx = result_tx.clone();
             let world = Arc::clone(&world);
+            let generator = ChunkGenerator::new(seed);
 
             thread::Builder::new()
                 .name(format!("mesh-worker-{}", i))
                 .spawn(move || {
                     
                     while let Ok(req) = rx.recv() {
-                        let meshes = {
+                        let snapshot = {
                             
                             
                             let world_read = world.read();
-                            world_read.build_subchunk_mesh(req.cx, req.cz, req.sy)
+                            world_read.snapshot_subchunk_mesh(req.cx, req.cz, req.sy)
                         };
+
+                        let Some(snapshot) = snapshot else {
+                            continue;
+                        };
+
+                        let meshes = World::build_subchunk_mesh_from_snapshot(&generator, &snapshot);
 
                         if tx
                             .send(MeshResult {

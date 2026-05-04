@@ -317,20 +317,9 @@ impl State {
             }
 
             
+            
             for (cx, cz) in newly_inserted_chunks {
-                
-                for bx in 0..CHUNK_SIZE {
-                    for by in 0..crust::constants::WORLD_HEIGHT as i32 {
-                        self.mark_chunk_dirty(cx * CHUNK_SIZE + bx, by, cz * CHUNK_SIZE);
-                        self.mark_chunk_dirty(cx * CHUNK_SIZE + bx, by, cz * CHUNK_SIZE + CHUNK_SIZE - 1);
-                    }
-                }
-                for bz in 0..CHUNK_SIZE {
-                    for by in 0..crust::constants::WORLD_HEIGHT as i32 {
-                        self.mark_chunk_dirty(cx * CHUNK_SIZE, by, cz * CHUNK_SIZE + bz);
-                        self.mark_chunk_dirty(cx * CHUNK_SIZE + CHUNK_SIZE - 1, by, cz * CHUNK_SIZE + bz);
-                    }
-                }
+                self.mark_chunk_column_and_neighbors_dirty(cx, cz);
             }
 
             self.remove_chunk_gpu_data(&removed_chunks);
@@ -379,6 +368,24 @@ impl State {
                 self.indirect_manager.remove_subchunk(&self.queue, key);
                 self.water_indirect_manager
                     .remove_subchunk(&self.queue, key);
+            }
+        }
+    }
+
+    /// Marks the inserted chunk column and its four horizontal neighbors dirty
+    /// with a single world write lock.
+    fn mark_chunk_column_and_neighbors_dirty(&mut self, cx: i32, cz: i32) {
+        let mut world = self.world.write();
+
+        for sy in 0..NUM_SUBCHUNKS as usize {
+            if let Some(chunk) = world.chunks.get_mut(&(cx, cz)) {
+                chunk.subchunks[sy].mesh_dirty = true;
+            }
+
+            for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
+                if let Some(chunk) = world.chunks.get_mut(&(nx, nz)) {
+                    chunk.subchunks[sy].mesh_dirty = true;
+                }
             }
         }
     }
