@@ -338,7 +338,7 @@ impl State {
                 _pad: 0.0,
                 rain_factor: 0.0,
                 shadows_enabled: 1.0,
-                _pad2: [0.0; 1],
+                sky_visibility: 1.0,
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -1976,6 +1976,7 @@ impl State {
             reflection_mode: 1,
             shadows_enabled: true,
             is_underwater: 0.0,
+            sky_visibility: 1.0,
             remote_players: HashMap::new(),
             my_player_id: 0,
             last_position_send: Instant::now(),

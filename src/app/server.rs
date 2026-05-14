@@ -57,7 +57,10 @@ pub async fn run_dedicated_server(addr: &str) {
             let _ = std::io::Write::flush(&mut std::io::stdout());
 
             let server_seed: u32 = rand::random();
-            log(LogLevel::Info, &format!("Server world seed: {}", server_seed));
+            log(
+                LogLevel::Info,
+                &format!("Server world seed: {}", server_seed),
+            );
 
             
             
