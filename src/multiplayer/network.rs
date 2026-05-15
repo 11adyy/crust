@@ -143,10 +143,6 @@ pub fn connect_to_server(
     }
 }
 
-
-
-
-
 /// Per-frame network update: sends the local player's position/rotation and
 /// processes all packets that have arrived since the last frame.
 ///
