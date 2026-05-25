@@ -434,10 +434,7 @@ impl ChunkGenerator {
         self.generate_decorations(&mut chunk, cx, cz, &biome_map, &height_map);
 
         
-        for subchunk in &mut chunk.subchunks {
-            subchunk.check_empty();
-            subchunk.check_fully_opaque();
-        }
+        chunk.rebuild_metadata();
 
         chunk
     }
