@@ -15,30 +15,12 @@ use crate::logger::{LogLevel, log};
 use crate::ui::menu::{GameState, MenuState};
 use crust::chunk_loader::ChunkLoader;
 use crust::{
-    CSM_PCF_SAMPLES, CSM_SHADOW_MAP_SIZES, Camera, DiggingState, IndirectManager, InputState,
-    OutlineVertex, SEA_LEVEL, ShadowConfig, TemporalShadowUniforms, Uniforms, Vertex, WORLD_HEIGHT,
-    World, build_crosshair,
+    CSM_ACTIVE_CASCADE_COUNT, CSM_CASCADE_SPLITS, CSM_PCF_SAMPLES, CSM_SHADOW_MAP_SIZES, Camera,
+    DiggingState, IndirectManager, InputState, OutlineVertex, SEA_LEVEL, ShadowConfig,
+    TemporalShadowUniforms, Uniforms, Vertex, WORLD_HEIGHT, World, build_crosshair,
 };
 
 use super::state::State;
-
-/// Converts an OpenGL-style clip-space matrix to wgpu's NDC convention.
-///
-/// wgpu (like Metal and DirectX) uses a depth range of [0, 1] in NDC,
-/// whereas OpenGL uses [-1, 1]. This matrix remaps the Z axis accordingly.
-/// It should be applied **after** the projection matrix when computing the
-/// final `view_proj` uniform that is uploaded to the GPU.
-///
-/// ```text
-/// depth_wgpu = depth_gl * 0.5 + 0.5
-/// ```
-#[cfg_attr(rustfmt, rustfmt_skip)]
-pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array(&[
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-]);
 
 fn create_menu_background_texture(
     device: &wgpu::Device,
@@ -121,9 +103,9 @@ impl State {
     ///    `PresentMode::Immediate` (uncapped frame rate) with 4× MSAA.
     /// 4. **Shader compilation** – compiles all WGSL shaders (terrain, water,
     ///    shadow, sky, sun, UI, Hi-Z, depth-resolve, composite).
-    /// 5. **Buffers & textures** – allocates the uniform buffer, shadow map
-    ///    cascade array, SSR color/depth targets, MSAA resolve targets, and
-    ///    the hierarchical-Z (Hi-Z) mip chain.
+    /// 5. **Buffers & textures** – allocates the uniform buffer, shadow map,
+    ///    SSR color/depth targets, MSAA resolve targets, and the
+    ///    hierarchical-Z (Hi-Z) mip chain.
     /// 6. **Bind group layouts & bind groups** – wires textures, samplers, and
     ///    buffers to the correct shader bindings for each pipeline.
     /// 7. **Render pipelines** – builds one `RenderPipeline` per pass:
@@ -369,7 +351,7 @@ impl State {
                 inv_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
                 
                 csm_view_proj: [Mat4::IDENTITY.to_cols_array_2d(); 4],
-                csm_split_distances: [16.0, 48.0, 128.0, 300.0],
+                csm_split_distances: CSM_CASCADE_SPLITS,
                 camera_pos: [0.0, 0.0, 0.0],
                 time: 0.0,
                 sun_position: [0.4, -0.2, 0.3],
@@ -425,35 +407,31 @@ impl State {
         
         
         
-        let shadow_cascade_views = CSM_SHADOW_MAP_SIZES
-            .iter()
-            .enumerate()
-            .map(|(i, &shadow_map_size)| {
-                let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some(&format!("Shadow Map Cascade {}", i)),
-                    size: wgpu::Extent3d {
-                        width: shadow_map_size,
-                        height: shadow_map_size,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Depth32Float,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
+        let shadow_map_size = CSM_SHADOW_MAP_SIZES[0];
+        let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Shadow Map"),
+            size: wgpu::Extent3d {
+                width: shadow_map_size,
+                height: shadow_map_size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let shadow_cascade_views = (0..CSM_SHADOW_MAP_SIZES.len())
+            .map(|i| {
                 shadow_texture.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some(&format!("Shadow Map Cascade View {}", i)),
+                    label: Some(&format!("Shadow Map View {}", i)),
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     ..Default::default()
                 })
             })
             .collect::<Vec<_>>();
 
-        
-        
         
         
         let shadow_cascade_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -584,7 +562,8 @@ impl State {
             contents: bytemuck::cast_slice(&[ShadowConfig {
                 shadow_map_sizes: CSM_SHADOW_MAP_SIZES.map(|size| size as f32),
                 pcf_samples: CSM_PCF_SAMPLES,
-                _pad: [0; 3],
+                active_cascades: CSM_ACTIVE_CASCADE_COUNT as u32,
+                _pad: [0; 2],
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -703,7 +682,6 @@ impl State {
                 ],
             });
 
-        
         
         
         let shadow_bind_group_layout =
@@ -1190,7 +1168,6 @@ impl State {
             label: Some("uniform_bind_group"),
         });
 
-        
         
         
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1744,9 +1721,9 @@ impl State {
 
         
         let menu_connect_button_buffer =
-            glyphon::Buffer::new(&mut font_system, Metrics::new(48.0, 58.0));
+            glyphon::Buffer::new(&mut font_system, Metrics::new(36.0, 44.0));
         let menu_singleplayer_button_buffer =
-            glyphon::Buffer::new(&mut font_system, Metrics::new(48.0, 58.0));
+            glyphon::Buffer::new(&mut font_system, Metrics::new(36.0, 44.0));
 
         
         let hotbar_label_buffer = glyphon::Buffer::new(&mut font_system, Metrics::new(22.0, 28.0));
