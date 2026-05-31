@@ -15,9 +15,8 @@ use crate::logger::{LogLevel, log};
 use crate::ui::menu::{GameState, MenuState};
 use crust::chunk_loader::ChunkLoader;
 use crust::{
-    CSM_ACTIVE_CASCADE_COUNT, CSM_CASCADE_SPLITS, CSM_PCF_SAMPLES, CSM_SHADOW_MAP_SIZES, Camera,
-    DiggingState, IndirectManager, InputState, OutlineVertex, SEA_LEVEL, ShadowConfig,
-    TemporalShadowUniforms, Uniforms, Vertex, WORLD_HEIGHT, World, build_crosshair,
+    Camera, DiggingState, IndirectManager, InputState, OutlineVertex, SEA_LEVEL, Uniforms, Vertex,
+    WORLD_HEIGHT, World, build_crosshair,
 };
 
 use super::state::State;
@@ -102,15 +101,15 @@ impl State {
     /// 3. **Swap-chain configuration** – prefers an sRGB surface format and
     ///    `PresentMode::Immediate` (uncapped frame rate) with 4× MSAA.
     /// 4. **Shader compilation** – compiles all WGSL shaders (terrain, water,
-    ///    shadow, sky, sun, UI, Hi-Z, depth-resolve, composite).
-    /// 5. **Buffers & textures** – allocates the uniform buffer, shadow map,
+    ///    sky, sun, UI, Hi-Z, depth-resolve, composite).
+    /// 5. **Buffers & textures** – allocates the uniform buffer,
     ///    SSR color/depth targets, MSAA resolve targets, and the
     ///    hierarchical-Z (Hi-Z) mip chain.
     /// 6. **Bind group layouts & bind groups** – wires textures, samplers, and
     ///    buffers to the correct shader bindings for each pipeline.
     /// 7. **Render pipelines** – builds one `RenderPipeline` per pass:
-    ///    terrain, water (alpha-blended), crosshair UI, shadow depth, sun
-    ///    billboard, sky dome, depth-resolve, and the final composite blit.
+    ///    terrain, water (alpha-blended), crosshair UI, sun billboard,
+    ///    sky dome, depth-resolve, and the final composite blit.
     /// 8. **Compute pipelines** – builds the Hi-Z downsampling compute pipeline
     ///    with one bind group per adjacent mip level pair.
     /// 9. **World & camera** – constructs the voxel `World`, finds a safe spawn
@@ -299,7 +298,6 @@ impl State {
         let terrain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Terrain Shader"),
             
-            
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/terrain.wgsl").into()),
         });
         let water_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -324,12 +322,6 @@ impl State {
             
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sun.wgsl").into()),
         });
-        let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shadow Shader"),
-            
-            
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shadow.wgsl").into()),
-        });
         let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Sky Shader"),
             
@@ -349,9 +341,6 @@ impl State {
             contents: bytemuck::cast_slice(&[Uniforms {
                 view_proj: Mat4::IDENTITY.to_cols_array_2d(),
                 inv_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-                
-                csm_view_proj: [Mat4::IDENTITY.to_cols_array_2d(); 4],
-                csm_split_distances: CSM_CASCADE_SPLITS,
                 camera_pos: [0.0, 0.0, 0.0],
                 time: 0.0,
                 sun_position: [0.4, -0.2, 0.3],
@@ -366,12 +355,10 @@ impl State {
                 moon_intensity: 0.0,
                 wind_dir: [0.8, 0.6],
                 wind_speed: 1.0,
-                _pad: 0.0,
                 rain_factor: 0.0,
-                shadows_enabled: 1.0,
                 sky_visibility: 1.0,
                 menu_blur: 1.0,
-                _pad_menu: [0.0; 3],
+                _pad_uniforms: 0.0,
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -404,188 +391,6 @@ impl State {
         
         
 
-        
-        
-        
-        let shadow_map_size = CSM_SHADOW_MAP_SIZES[0];
-        let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Shadow Map"),
-            size: wgpu::Extent3d {
-                width: shadow_map_size,
-                height: shadow_map_size,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let shadow_cascade_views = (0..CSM_SHADOW_MAP_SIZES.len())
-            .map(|i| {
-                shadow_texture.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some(&format!("Shadow Map View {}", i)),
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    ..Default::default()
-                })
-            })
-            .collect::<Vec<_>>();
-
-        
-        
-        let shadow_cascade_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Shadow Cascade Buffer"),
-            
-            
-            size: 256 * 4,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        
-        
-        
-        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Shadow Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::LessEqual),
-            ..Default::default()
-        });
-
-        
-        
-        let shadow_mask_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Shadow Mask Texture"),
-            size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let shadow_mask_view =
-            shadow_mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let shadow_history_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Temporal Shadow History Texture"),
-            size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let shadow_history_view =
-            shadow_history_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        {
-            let mut clear_encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Shadow Mask Clear Encoder"),
-                });
-            
-            
-            let shadow_mask_init_buffer =
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Shadow Mask Init Buffer"),
-                    contents: bytemuck::cast_slice(&vec![
-                        1.0f32;
-                        (config.width * config.height) as usize
-                    ]),
-                    usage: wgpu::BufferUsages::COPY_SRC,
-                });
-            clear_encoder.copy_buffer_to_texture(
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &shadow_mask_init_buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * config.width),
-                        rows_per_image: Some(config.height),
-                    },
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &shadow_mask_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: config.width,
-                    height: config.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            clear_encoder.copy_buffer_to_texture(
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &shadow_mask_init_buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4 * config.width),
-                        rows_per_image: Some(config.height),
-                    },
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &shadow_history_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: config.width,
-                    height: config.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            queue.submit(Some(clear_encoder.finish()));
-        }
-
-        let shadow_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Shadow Config Buffer"),
-            contents: bytemuck::cast_slice(&[ShadowConfig {
-                shadow_map_sizes: CSM_SHADOW_MAP_SIZES.map(|size| size as f32),
-                pcf_samples: CSM_PCF_SAMPLES,
-                active_cascades: CSM_ACTIVE_CASCADE_COUNT as u32,
-                _pad: [0; 2],
-            }]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let temporal_shadow_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Temporal Shadow Buffer"),
-            contents: bytemuck::cast_slice(&[TemporalShadowUniforms {
-                prev_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-                prev_camera_pos: [0.0, 0.0, 0.0],
-                history_weight: 0.0,
-                prev_sun_position: [0.0, 1.0, 0.0],
-                history_valid: 0.0,
-            }]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        
-        
-        
-
-        
-        
-        
         
         
         
@@ -623,175 +428,8 @@ impl State {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 7,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 8,
-                        visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
-
-        
-        
-        let shadow_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("shadow_bind_group_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let shadow_mask_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("shadow_mask_bind_group_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                        count: None,
-                    },
-                ],
-            });
-
-        
-        
-        let terrain_gbuffer_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("terrain_gbuffer_bind_group_layout"),
-                entries: &[
-                    
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-        let terrain_shadow_output_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("terrain_shadow_output_bind_group_layout"),
-                entries: &[],
-            });
-        let shadow_mask_output_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("shadow_mask_output_bind_group_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::R32Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                }],
-            });
-        let temporal_shadow_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("temporal_shadow_bind_group_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        
-        
-        let terrain_gbuffer_bind_group: wgpu::BindGroup;
-        let terrain_shadow_output_bind_group: wgpu::BindGroup;
-        let shadow_mask_output_bind_group: wgpu::BindGroup;
 
         
         
@@ -831,43 +469,6 @@ impl State {
             view_formats: &[],
         });
         let ssr_depth_view = ssr_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        
-        terrain_gbuffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("terrain_gbuffer_bind_group"),
-            layout: &terrain_gbuffer_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&ssr_depth_view),
-            }],
-        });
-        terrain_shadow_output_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("terrain_shadow_output_bind_group"),
-            layout: &terrain_shadow_output_bind_group_layout,
-            entries: &[],
-        });
-        shadow_mask_output_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow_mask_output_bind_group"),
-            layout: &shadow_mask_output_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&shadow_mask_view),
-            }],
-        });
-        let temporal_shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("temporal_shadow_bind_group"),
-            layout: &temporal_shadow_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&shadow_history_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: temporal_shadow_buffer.as_entire_binding(),
-                },
-            ],
-        });
 
         
         
@@ -939,8 +540,6 @@ impl State {
         
         
         
-        
-        
         let water_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("water_bind_group_layout"),
@@ -969,52 +568,6 @@ impl State {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 7,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                         count: None,
                     },
                     
@@ -1082,26 +635,6 @@ impl State {
                     resource: wgpu::BindingResource::Sampler(&texture_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[1]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[2]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[3]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
                     binding: 8,
                     resource: wgpu::BindingResource::TextureView(&ssr_color_view),
                 },
@@ -1140,62 +673,8 @@ impl State {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&texture_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[1]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[2]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&shadow_cascade_views[3]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: shadow_config_buffer.as_entire_binding(),
-                },
             ],
             label: Some("uniform_bind_group"),
-        });
-
-        
-        
-        let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &shadow_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &shadow_cascade_buffer,
-                    offset: 0,
-                    size: std::num::NonZeroU64::new(80),
-                }),
-            }],
-            label: Some("shadow_bind_group"),
-        });
-
-        let shadow_mask_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &shadow_mask_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&shadow_mask_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&ssr_sampler),
-                },
-            ],
-            label: Some("shadow_mask_bind_group"),
         });
 
         
@@ -1205,33 +684,9 @@ impl State {
         
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[
-                &uniform_bind_group_layout,               
-                &terrain_gbuffer_bind_group_layout,       
-                &terrain_shadow_output_bind_group_layout, 
-                &shadow_mask_bind_group_layout,           
-            ],
+            bind_group_layouts: &[&uniform_bind_group_layout],
             immediate_size: 0,
         });
-
-        let shadow_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Shadow Pipeline Layout"),
-                bind_group_layouts: &[&shadow_bind_group_layout],
-                immediate_size: 0,
-            });
-
-        let shadow_mask_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Shadow Mask Pipeline Layout"),
-                bind_group_layouts: &[
-                    &uniform_bind_group_layout,            
-                    &terrain_gbuffer_bind_group_layout,    
-                    &shadow_mask_output_bind_group_layout, 
-                    &temporal_shadow_bind_group_layout,    
-                ],
-                immediate_size: 0,
-            });
 
         let water_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1287,7 +742,6 @@ impl State {
             multiview_mask: None,
         });
 
-        
         
         
         let terrain_depth_pipeline =
@@ -1450,61 +904,6 @@ impl State {
             },
             multiview_mask: None,
         });
-
-        
-        
-        
-        
-        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Shadow Pipeline"),
-            layout: Some(&shadow_pipeline_layout),
-            cache: None,
-            vertex: wgpu::VertexState {
-                module: &shadow_shader,
-                entry_point: Some("vs_shadow"),
-                compilation_options: Default::default(),
-                buffers: &[Vertex::desc()],
-            },
-            fragment: None, 
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState {
-                    
-                    
-                    
-                    constant: 2,
-                    slope_scale: 2.0,
-                    clamp: 0.0,
-                },
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-        });
-
-        
-        
-        let shadow_mask_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Shadow Mask Pipeline"),
-                layout: Some(&shadow_mask_pipeline_layout),
-                cache: None,
-                module: &terrain_shader,
-                entry_point: Some("compute_shadow"),
-                compilation_options: Default::default(),
-            });
 
         
         
@@ -1947,9 +1346,6 @@ impl State {
         
         let mut indirect_manager = IndirectManager::new(&device);
         let mut water_indirect_manager = IndirectManager::new(&device);
-        
-        indirect_manager.init_shadow_resources(&device);
-        water_indirect_manager.init_shadow_resources(&device);
 
         
         
@@ -2108,7 +1504,6 @@ impl State {
             outline_pipeline,
             sun_pipeline,
             sky_pipeline,
-            shadow_pipeline,
             crosshair_pipeline,
             sun_vertex_buffer,
             sun_index_buffer,
@@ -2117,27 +1512,10 @@ impl State {
             num_crosshair_indices,
             show_crosshair: true,
             uniform_buffer,
-            shadow_config_buffer,
-            temporal_shadow_buffer,
             uniform_bind_group,
-            terrain_gbuffer_bind_group: terrain_gbuffer_bind_group.clone(),
-            terrain_shadow_output_bind_group: terrain_shadow_output_bind_group.clone(),
-            shadow_bind_group,
             terrain_depth_pipeline,
-            shadow_mask_pipeline,
             depth_texture,
             msaa_texture_view,
-            shadow_mask_texture,
-            shadow_mask_view,
-            shadow_history_texture,
-            shadow_history_view,
-            shadow_cascade_views,
-            shadow_cascade_buffer,
-            shadow_sampler,
-            shadow_mask_bind_group,
-            shadow_mask_input_bind_group: terrain_gbuffer_bind_group,
-            shadow_mask_output_bind_group,
-            temporal_shadow_bind_group,
             world,
             mesh_loader,
             camera,
@@ -2170,7 +1548,6 @@ impl State {
             has_entered_world: false,
             menu_state: MenuState::default(),
             reflection_mode: 1,
-            shadows_enabled: true,
             is_underwater: 0.0,
             sky_visibility: 1.0,
             remote_players: HashMap::new(),
@@ -2236,11 +1613,6 @@ impl State {
             depth_resolve_pipeline,
             depth_resolve_bind_group,
             supports_indirect_count,
-            csm: crust::render_core::csm::CsmManager::new(),
-            prev_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-            prev_camera_pos: [0.0, 0.0, 0.0],
-            prev_sun_position: [0.0, 1.0, 0.0],
-            shadow_history_valid: false,
             hotbar_slot: 0,
             hotbar_vertex_buffer: None,
             hotbar_index_buffer: None,
