@@ -15,8 +15,8 @@ use crate::logger::{LogLevel, log};
 use crate::ui::menu::{GameState, MenuState};
 use crust::chunk_loader::ChunkLoader;
 use crust::{
-    Camera, DiggingState, IndirectManager, InputState, OutlineVertex, SEA_LEVEL, Uniforms, Vertex,
-    WORLD_HEIGHT, World, build_crosshair,
+    Camera, DiggingState, IndirectBufferBudget, IndirectManager, InputState, OutlineVertex,
+    SEA_LEVEL, Uniforms, Vertex, WORLD_HEIGHT, World, build_crosshair,
 };
 
 use super::state::State;
@@ -1345,7 +1345,8 @@ impl State {
         
         
         let mut indirect_manager = IndirectManager::new(&device);
-        let mut water_indirect_manager = IndirectManager::new(&device);
+        let mut water_indirect_manager =
+            IndirectManager::with_budget(&device, IndirectBufferBudget::WATER);
 
         
         
