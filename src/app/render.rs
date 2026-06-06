@@ -3,9 +3,8 @@ use glyphon::{Attrs, Color, Family, Metrics, Shaping, TextArea, TextBounds};
 use wgpu::util::DeviceExt;
 
 use crust::{
-    BlockType, CHUNK_SIZE, DEFAULT_FOV, RENDER_DISTANCE, SEA_LEVEL, SHADOW_CASCADE_COUNT, Uniforms,
-    Vertex, World, build_block_outline, build_player_model, build_shadow_frame_data,
-    extract_frustum_planes,
+    BlockType, CHUNK_SIZE, DEFAULT_FOV, RENDER_DISTANCE, SEA_LEVEL, Uniforms, Vertex, World,
+    build_block_outline, build_player_model, extract_frustum_planes,
 };
 
 use crate::logger::{LogLevel, log};
@@ -288,14 +287,6 @@ impl State {
 
         
         let moon_position = [-sun_dir.x, -sun_dir.y, -sun_dir.z];
-        let shadow_frame = build_shadow_frame_data(
-            view_mat,
-            aspect,
-            0.1,
-            far_plane,
-            self.camera.look_direction(),
-            sun_dir,
-        );
 
         
         let player_cx = (self.camera.position.x / CHUNK_SIZE as f32).floor() as i32;
@@ -335,18 +326,6 @@ impl State {
                 _pad_uniforms: 0.0,
             }]),
         );
-        self.queue.write_buffer(
-            &self.shadow_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&shadow_frame.uniforms),
-        );
-        for cascade in 0..SHADOW_CASCADE_COUNT {
-            self.queue.write_buffer(
-                &self.shadow_cascade_uniform_buffers[cascade],
-                0,
-                bytemuck::bytes_of(&shadow_frame.cascade_uniforms[cascade]),
-            );
-        }
 
         
         
@@ -443,60 +422,6 @@ impl State {
 
         
         
-        
-        if render_world_scene && shadow_frame.uniforms.shadow_strength > 0.001 {
-            for cascade in 0..SHADOW_CASCADE_COUNT {
-                let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("CSM Shadow Cascade Pass"),
-                    color_attachments: &[],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &self.shadow_cascade_views[cascade],
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
-                shadow_pass.set_pipeline(&self.shadow_pipeline);
-                shadow_pass.set_bind_group(0, &self.shadow_cascade_bind_groups[cascade], &[]);
-                shadow_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
-                shadow_pass.set_index_buffer(
-                    self.indirect_manager.index_buffer().slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                if self.supports_indirect_count {
-                    shadow_pass.multi_draw_indexed_indirect_count(
-                        self.indirect_manager.draw_commands(),
-                        0,
-                        self.indirect_manager.visible_count_buffer(),
-                        0,
-                        self.indirect_manager.active_count(),
-                    );
-                } else {
-                    shadow_pass.multi_draw_indexed_indirect(
-                        self.indirect_manager.draw_commands(),
-                        0,
-                        self.indirect_manager.active_count(),
-                    );
-                }
-
-                if self.player_model_num_indices > 0 {
-                    if let (Some(vb), Some(ib)) = (
-                        &self.player_model_vertex_buffer,
-                        &self.player_model_index_buffer,
-                    ) {
-                        shadow_pass.set_vertex_buffer(0, vb.slice(..));
-                        shadow_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                        shadow_pass.draw_indexed(0..self.player_model_num_indices, 0, 0..1);
-                    }
-                }
-            }
-        }
-
-        
-        
         if render_world_scene {
             let mut depth_prepass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Terrain Depth Prepass"),
@@ -559,33 +484,6 @@ impl State {
                 (self.config.height + 15) / 16,
                 1,
             );
-        }
-
-        
-        
-        
-        
-        if render_world_scene {
-            let mut shadow_mask_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Half Resolution Shadow Mask Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.shadow_mask_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-
-            if shadow_frame.uniforms.shadow_strength > 0.001 {
-                shadow_mask_pass.set_pipeline(&self.shadow_mask_pipeline);
-                shadow_mask_pass.set_bind_group(0, &self.shadow_mask_source_bind_group, &[]);
-                shadow_mask_pass.draw(0..3, 0..1);
-            }
         }
 
         
@@ -655,7 +553,6 @@ impl State {
             
             opaque_pass.set_pipeline(&self.render_pipeline);
             opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            opaque_pass.set_bind_group(1, &self.shadow_bind_group, &[]);
             opaque_pass.set_vertex_buffer(0, self.indirect_manager.vertex_buffer().slice(..));
             opaque_pass.set_index_buffer(
                 self.indirect_manager.index_buffer().slice(..),
@@ -687,7 +584,6 @@ impl State {
                 ) {
                     opaque_pass.set_pipeline(&self.render_pipeline);
                     opaque_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    opaque_pass.set_bind_group(1, &self.shadow_bind_group, &[]);
                     opaque_pass.set_vertex_buffer(0, vb.slice(..));
                     opaque_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                     opaque_pass.draw_indexed(0..self.player_model_num_indices, 0, 0..1);
