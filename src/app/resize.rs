@@ -125,6 +125,66 @@ impl State {
             
             
             
+            let (shadow_mask_texture, shadow_mask_view, shadow_mask_size) =
+                crust::create_shadow_mask_texture(
+                    &self.device,
+                    self.config.width,
+                    self.config.height,
+                );
+            self.shadow_mask_texture = shadow_mask_texture;
+            self.shadow_mask_view = shadow_mask_view;
+            self.shadow_mask_size = shadow_mask_size;
+
+            let shadow_mask_bind_group_layout = self.render_pipeline.get_bind_group_layout(1);
+            self.shadow_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shadow_bind_group"),
+                layout: &shadow_mask_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.shadow_mask_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.shadow_mask_sampler),
+                    },
+                ],
+            });
+
+            let shadow_mask_source_bind_group_layout =
+                self.shadow_mask_pipeline.get_bind_group_layout(0);
+            self.shadow_mask_source_bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("shadow_mask_source_bind_group"),
+                    layout: &shadow_mask_source_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.uniform_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&self.ssr_depth_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.shadow_uniform_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&self.shadow_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
+                        },
+                    ],
+                });
+
+            
+            
+            
+            
             
             
             self.water_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
