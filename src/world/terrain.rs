@@ -1248,8 +1248,14 @@ impl World {
                         }
 
                         
+                        
+                        
+                        
+                        let can_merge = face.ao == [3; 4];
+
+                        
                         let mut width = 1i32;
-                        while d2 + width < dim2_size {
+                        while can_merge && d2 + width < dim2_size {
                             let next_idx = (d1 * dim2_size + d2 + width) as usize;
                             if mask[next_idx] == face {
                                 width += 1;
@@ -1261,7 +1267,7 @@ impl World {
                         
                         
                         let mut height = 1i32;
-                        'height_loop: while d1 + height < dim1_size {
+                        'height_loop: while can_merge && d1 + height < dim1_size {
                             for w in 0..width {
                                 let check_idx = ((d1 + height) * dim2_size + d2 + w) as usize;
                                 if mask[check_idx] != face {
