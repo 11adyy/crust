@@ -18,11 +18,8 @@ impl State {
     /// |---|---|
     /// | Surface configuration | Swap-chain must match the new pixel dimensions. |
     /// | Depth texture (MSAA) | Multisampled depth must match the color target size. |
-    /// | MSAA color texture | Render target size changed. |
-    /// | SSR color texture + view | SSR reads scene pixels 1:1; must stay in sync. |
-    /// | SSR depth texture + view | Same reason – used for refraction depth lookups. |
-    /// | SSR sampler | Recreated alongside its textures for clarity. |
-    /// | `water_bind_group` | References the new SSR views. |
+/// | MSAA color texture | Render target size changed. |
+    /// | Half-resolution sky texture + bind group | Procedural sky target must follow surface size. |
     /// | `depth_resolve_bind_group` | References the new multisampled depth view. |
     /// | `glyphon` viewport | Text renderer needs the physical resolution for HiDPI. |
     /// | Scene color texture + view | MSAA resolve target for the composite pass. |
@@ -63,137 +60,6 @@ impl State {
                 self.surface_format,
                 msaa_sample_count,
             );
-
-            
-            
-            
-            
-
-            
-            self.ssr_color_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("SSR Color Texture"),
-                size: wgpu::Extent3d {
-                    width: self.config.width,
-                    height: self.config.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1, 
-                dimension: wgpu::TextureDimension::D2,
-                format: self.surface_format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            self.ssr_color_view = self
-                .ssr_color_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            
-            self.ssr_depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("SSR Depth Texture"),
-                size: wgpu::Extent3d {
-                    width: self.config.width,
-                    height: self.config.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R32Float,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            self.ssr_depth_view = self
-                .ssr_depth_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            
-            
-            self.ssr_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("SSR Sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-                ..Default::default()
-            });
-
-            
-            
-            
-            
-            
-            
-            self.water_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.water_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        
-                        resource: wgpu::BindingResource::TextureView(&self.ssr_color_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 9,
-                        
-                        resource: wgpu::BindingResource::TextureView(&self.ssr_depth_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 10,
-                        resource: wgpu::BindingResource::Sampler(&self.ssr_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 11,
-                        resource: wgpu::BindingResource::TextureView(&self.flow_map_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 12,
-                        resource: wgpu::BindingResource::Sampler(&self.flow_sampler),
-                    },
-                ],
-                label: Some("water_bind_group"),
-            });
-
-            
-            
-            
-            
-            
-            
-            self.depth_resolve_bind_group =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Depth Resolve Bind Group"),
-                    layout: &self.depth_resolve_pipeline.get_bind_group_layout(0),
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&self.depth_texture),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&self.hiz_mips[0]),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&self.ssr_depth_view),
-                        },
-                    ],
-                });
-
             
             
             
@@ -228,7 +94,6 @@ impl State {
                 .scene_color_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            
             
             
             
@@ -369,6 +234,26 @@ impl State {
                 self.hiz_mips = new_hiz_mips;
                 self.hiz_bind_groups = new_hiz_bind_groups;
             }
+
+            
+            
+            
+            
+            self.depth_resolve_bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Depth Resolve Bind Group"),
+                    layout: &self.depth_resolve_pipeline.get_bind_group_layout(0),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&self.depth_texture),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&self.hiz_mips[0]),
+                        },
+                    ],
+                });
         }
     }
 }
