@@ -89,6 +89,13 @@ impl State {
             &aabb_copy,
         );
 
+        self.indirect_manager.update_cull_subchunk(
+            &self.queue,
+            key,
+            &aabb_copy,
+            &self.water_indirect_manager,
+        );
+
         
         
         if self.indirect_manager.take_quad_buffer_rebind() {
@@ -128,10 +135,7 @@ impl State {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: self
-                                .water_indirect_manager
-                                .subchunk_meta_buffer()
-                                .as_entire_binding(),
+                            resource: self.indirect_manager.subchunk_meta_buffer().as_entire_binding(),
                         },
                     ],
                 });
@@ -481,6 +485,8 @@ impl State {
                 self.indirect_manager.remove_subchunk(&self.queue, key);
                 self.water_indirect_manager
                     .remove_subchunk(&self.queue, key);
+                
+                self.indirect_manager.remove_cull_subchunk(&self.queue, key);
             }
         }
     }

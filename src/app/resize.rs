@@ -222,11 +222,8 @@ impl State {
                     .collect();
 
                 
-                
                 self.indirect_manager
-                    .update_bind_group(&self.device, &new_hiz_view);
-                self.water_indirect_manager
-                    .update_bind_group(&self.device, &new_hiz_view);
+                    .update_bind_group(&self.device, &new_hiz_view, &self.water_indirect_manager);
 
                 
                 self.hiz_texture = hiz_texture;
