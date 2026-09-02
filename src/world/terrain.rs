@@ -2,7 +2,7 @@ use crate::constants::*;
 use crate::core::biome::Biome;
 use crate::core::block::BlockType;
 use crate::core::chunk::Chunk;
-use crate::render::mesh::{add_greedy_quad_with_ao, add_quad};
+use crate::render::quad::{emit_packed_quad, PackedQuad};
 use crate::world::generator::ChunkGenerator;
 use parking_lot::RwLock;
 use rand::random;
@@ -497,7 +497,7 @@ impl World {
     ///
     /// Stair blocks require non-axis-aligned geometry (two horizontally
     /// stacked half-blocks) that cannot be expressed as a single full-face
-    /// quad.  They are rendered with individual `add_quad` calls in a
+    /// quad. They are rendered as individual packed descriptors in a
     /// dedicated pre-pass loop and then **excluded** from the greedy meshing
     /// loop via an explicit `continue`.
     ///
@@ -517,7 +517,7 @@ impl World {
     ///    from each active cell, extends a rectangle first along `d2` (width)
     ///    until the next cell differs, then along `d1` (height) checking
     ///    that every cell in the expanded row matches.  The merged rectangle
-    ///    is emitted as a single `add_greedy_quad` call and the covered
+    ///    is emitted as a single packed descriptor and the covered
     ///    cells are marked inactive.
     ///
     /// The greedy approach dramatically reduces vertex count for large flat
@@ -551,7 +551,7 @@ impl World {
     /// - `subchunk_y` – Sub-chunk vertical index within the column.
     ///
     /// # Returns
-    /// A pair of `(vertices, indices)` tuples:
+    /// A pair of packed terrain and water descriptor streams:
     /// - First tuple: opaque geometry.
     /// - Second tuple: water (translucent) geometry.
     pub fn snapshot_subchunk_mesh(
@@ -671,10 +671,8 @@ impl World {
         Vec<crate::render::quad::PackedQuad>,
         Vec<crate::render::quad::PackedQuad>,
     ) {
-        let mut vertices = Vec::with_capacity(4096);
-        let mut indices = Vec::with_capacity(2048);
-        let mut water_vertices = Vec::with_capacity(1024);
-        let mut water_indices = Vec::with_capacity(512);
+        let mut terrain_quads = Vec::with_capacity(512);
+        let mut water_quads = Vec::with_capacity(128);
 
         if !snapshot.has_blocks {
             return (Vec::new(), Vec::new());
@@ -686,6 +684,7 @@ impl World {
         let base_x = chunk_x * CHUNK_SIZE;
         let base_y = subchunk_y * SUBCHUNK_HEIGHT;
         let base_z = chunk_z * CHUNK_SIZE;
+        let subchunk_origin = [base_x, base_y, base_z];
 
         
         
@@ -928,6 +927,51 @@ impl World {
                 (c[2].clamp(0.0, 1.0) * 7.0) as u8,
             ]
         };
+        
+        
+        let emit_corner_quad = |quads: &mut Vec<PackedQuad>,
+                                v0: [f32; 3],
+                                v1: [f32; 3],
+                                v2: [f32; 3],
+                                _v3: [f32; 3],
+                                normal: [f32; 3],
+                                color: [f32; 3],
+                                material: f32,
+                                _roughness: f32,
+                                _metallic: f32| {
+            let face = if normal[0] < -0.5 {
+                0
+            } else if normal[0] > 0.5 {
+                1
+            } else if normal[1] < -0.5 {
+                2
+            } else if normal[1] > 0.5 {
+                3
+            } else if normal[2] < -0.5 {
+                4
+            } else {
+                5
+            };
+            let edge_len = |a: [f32; 3], b: [f32; 3]| {
+                ((a[0] - b[0])
+                    .abs()
+                    .max((a[1] - b[1]).abs())
+                    .max((a[2] - b[2]).abs())
+                    * 2.0)
+                    .round() as u32
+            };
+            emit_packed_quad(
+                quads,
+                subchunk_origin,
+                v0,
+                face,
+                edge_len(v0, v1),
+                edge_len(v1, v2),
+                material as u8,
+                quantize_color(color),
+                [3; 4],
+            );
+        };
         let empty_face = FaceAttrs::default();
         let mut mask = [empty_face; (CHUNK_SIZE as usize) * (SUBCHUNK_HEIGHT as usize)];
 
@@ -946,13 +990,6 @@ impl World {
                     if block == BlockType::Air {
                         continue;
                     }
-
-                    let is_water = block == BlockType::Water;
-                    let (target_verts, target_inds) = if is_water {
-                        (&mut water_vertices, &mut water_indices)
-                    } else {
-                        (&mut vertices, &mut indices)
-                    };
 
                     if block == BlockType::WoodStairs {
                         let x = world_x as f32;
@@ -980,9 +1017,8 @@ impl World {
 
                         
                         if block.should_render_face_against(neighbors[2]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x, y_f, z + 1.0],
                                 [x, y_f, z],
                                 [x + 1.0, y_f, z],
@@ -996,9 +1032,8 @@ impl World {
                         }
                         
                         
-                        add_quad(
-                            target_verts,
-                            target_inds,
+                        emit_corner_quad(
+                            &mut terrain_quads,
                             [x, y_f + 0.5, z],
                             [x, y_f + 0.5, z + 0.5],
                             [x + 1.0, y_f + 0.5, z + 0.5],
@@ -1011,9 +1046,8 @@ impl World {
                         );
                         
                         if block.should_render_face_against(neighbors[3]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x, y_f + 1.0, z + 0.5],
                                 [x, y_f + 1.0, z + 1.0],
                                 [x + 1.0, y_f + 1.0, z + 1.0],
@@ -1027,9 +1061,8 @@ impl World {
                         }
                         
                         if block.should_render_face_against(neighbors[4]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x + 1.0, y_f, z],
                                 [x, y_f, z],
                                 [x, y_f + 0.5, z],
@@ -1043,9 +1076,8 @@ impl World {
                         }
                         
                         
-                        add_quad(
-                            target_verts,
-                            target_inds,
+                        emit_corner_quad(
+                            &mut terrain_quads,
                             [x + 1.0, y_f + 0.5, z + 0.5],
                             [x, y_f + 0.5, z + 0.5],
                             [x, y_f + 1.0, z + 0.5],
@@ -1058,9 +1090,8 @@ impl World {
                         );
                         
                         if block.should_render_face_against(neighbors[5]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x, y_f, z + 1.0],
                                 [x + 1.0, y_f, z + 1.0],
                                 [x + 1.0, y_f + 1.0, z + 1.0],
@@ -1074,9 +1105,8 @@ impl World {
                         }
                         
                         if block.should_render_face_against(neighbors[0]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x, y_f, z],
                                 [x, y_f, z + 1.0],
                                 [x, y_f + 0.5, z + 1.0],
@@ -1087,9 +1117,8 @@ impl World {
                                 r,
                                 m,
                             );
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x, y_f + 0.5, z + 0.5],
                                 [x, y_f + 0.5, z + 1.0],
                                 [x, y_f + 1.0, z + 1.0],
@@ -1103,9 +1132,8 @@ impl World {
                         }
                         
                         if block.should_render_face_against(neighbors[1]) {
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x + 1.0, y_f, z + 1.0],
                                 [x + 1.0, y_f, z],
                                 [x + 1.0, y_f + 0.5, z],
@@ -1116,9 +1144,8 @@ impl World {
                                 r,
                                 m,
                             );
-                            add_quad(
-                                target_verts,
-                                target_inds,
+                            emit_corner_quad(
+                                &mut terrain_quads,
                                 [x + 1.0, y_f + 0.5, z + 1.0],
                                 [x + 1.0, y_f + 0.5, z + 0.5],
                                 [x + 1.0, y_f + 1.0, z + 0.5],
@@ -1177,9 +1204,8 @@ impl World {
                                 let x = world_x as f32;
                                 let y_f = y as f32;
                                 let z = world_z as f32;
-                                add_quad(
-                                    &mut water_vertices,
-                                    &mut water_indices,
+                                emit_corner_quad(
+                                    &mut water_quads,
                                     [x, y_f + 1.0, z],
                                     [x, y_f + 1.0, z + 1.0],
                                     [x + 1.0, y_f + 1.0, z + 1.0],
@@ -1290,165 +1316,57 @@ impl World {
                             }
                         }
 
-                        let color = [
-                            face.color[0] as f32 / 7.0,
-                            face.color[1] as f32 / 7.0,
-                            face.color[2] as f32 / 7.0,
-                        ];
-                        let ao = face.ao;
-                        let tex_index = face.tex_index as f32;
-                        let roughness = face.block.roughness();
-                        let metallic = face.block.metallic();
-                        let (target_verts, target_inds) = if face.block == BlockType::Water {
-                            (&mut water_vertices, &mut water_indices)
+                        let target_quads = if face.block == BlockType::Water {
+                            &mut water_quads
                         } else {
-                            (&mut vertices, &mut indices)
+                            &mut terrain_quads
                         };
-
                         
                         
-                        let (x0, y0, z0, x1, y1, z1) = match face_dir {
-                            0 => {
-                                let x = (base_x + slice) as f32;
-                                let y0 = (base_y + d1) as f32;
-                                let z0 = (base_z + d2) as f32;
-                                (x, y0, z0, x, y0 + height as f32, z0 + width as f32)
-                            }
-                            1 => {
-                                let x = (base_x + slice + 1) as f32;
-                                let y0 = (base_y + d1) as f32;
-                                let z0 = (base_z + d2) as f32;
-                                (x, y0, z0, x, y0 + height as f32, z0 + width as f32)
-                            }
-                            2 => {
-                                let y = (base_y + slice) as f32;
-                                let x0 = (base_x + d1) as f32;
-                                let z0 = (base_z + d2) as f32;
-                                (x0, y, z0, x0 + height as f32, y, z0 + width as f32)
-                            }
-                            3 => {
-                                let y = (base_y + slice + 1) as f32;
-                                let x0 = (base_x + d1) as f32;
-                                let z0 = (base_z + d2) as f32;
-                                (x0, y, z0, x0 + height as f32, y, z0 + width as f32)
-                            }
-                            4 => {
-                                let z = (base_z + slice) as f32;
-                                let x0 = (base_x + d1) as f32;
-                                let y0 = (base_y + d2) as f32;
-                                (x0, y0, z, x0 + height as f32, y0 + width as f32, z)
-                            }
-                            5 => {
-                                let z = (base_z + slice + 1) as f32;
-                                let x0 = (base_x + d1) as f32;
-                                let y0 = (base_y + d2) as f32;
-                                (x0, y0, z, x0 + height as f32, y0 + width as f32, z)
-                            }
+                        let (origin, quad_width, quad_height) = match face_dir {
+                            0 => (
+                                [base_x + slice, base_y + d1, base_z + d2],
+                                width * 2,
+                                height * 2,
+                            ),
+                            1 => (
+                                [base_x + slice + 1, base_y + d1, base_z + d2 + width],
+                                width * 2,
+                                height * 2,
+                            ),
+                            2 => (
+                                [base_x + d1, base_y + slice, base_z + d2 + width],
+                                width * 2,
+                                height * 2,
+                            ),
+                            3 => (
+                                [base_x + d1, base_y + slice + 1, base_z + d2],
+                                width * 2,
+                                height * 2,
+                            ),
+                            4 => (
+                                [base_x + d1 + height, base_y + d2, base_z + slice],
+                                height * 2,
+                                width * 2,
+                            ),
+                            5 => (
+                                [base_x + d1, base_y + d2, base_z + slice + 1],
+                                height * 2,
+                                width * 2,
+                            ),
                             _ => unreachable!(),
                         };
-
-                        
-                        
-                        
-                        match face_dir {
-                            0 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x0, y0, z0],
-                                [x0, y0, z1],
-                                [x0, y1, z1],
-                                [x0, y1, z0],
-                                [-1.0, 0.0, 0.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                width as f32,
-                                height as f32,
-                                ao,
-                            ),
-                            1 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x1, y0, z1],
-                                [x1, y0, z0],
-                                [x1, y1, z0],
-                                [x1, y1, z1],
-                                [1.0, 0.0, 0.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                width as f32,
-                                height as f32,
-                                ao,
-                            ),
-                            2 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x0, y0, z1],
-                                [x0, y0, z0],
-                                [x1, y0, z0],
-                                [x1, y0, z1],
-                                [0.0, -1.0, 0.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                width as f32,
-                                height as f32,
-                                ao,
-                            ),
-                            3 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x0, y1, z0],
-                                [x0, y1, z1],
-                                [x1, y1, z1],
-                                [x1, y1, z0],
-                                [0.0, 1.0, 0.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                width as f32,
-                                height as f32,
-                                ao,
-                            ),
-                            4 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x1, y0, z0],
-                                [x0, y0, z0],
-                                [x0, y1, z0],
-                                [x1, y1, z0],
-                                [0.0, 0.0, -1.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                height as f32,
-                                width as f32,
-                                ao,
-                            ),
-                            5 => add_greedy_quad_with_ao(
-                                target_verts,
-                                target_inds,
-                                [x0, y0, z1],
-                                [x1, y0, z1],
-                                [x1, y1, z1],
-                                [x0, y1, z1],
-                                [0.0, 0.0, 1.0],
-                                color,
-                                tex_index,
-                                roughness,
-                                metallic,
-                                height as f32,
-                                width as f32,
-                                ao,
-                            ),
-                            _ => {}
-                        }
+                        emit_packed_quad(
+                            target_quads,
+                            subchunk_origin,
+                            [origin[0] as f32, origin[1] as f32, origin[2] as f32],
+                            face_dir as u8,
+                            quad_width as u32,
+                            quad_height as u32,
+                            face.tex_index,
+                            face.color,
+                            face.ao,
+                        );
 
                         d2 += width; 
                     }
@@ -1456,11 +1374,7 @@ impl World {
             }
         }
 
-        let subchunk_origin = [base_x, base_y, base_z];
-        (
-            crate::render::quad::pack_quad_stream(vertices, indices, subchunk_origin),
-            crate::render::quad::pack_quad_stream(water_vertices, water_indices, subchunk_origin),
-        )
+        (terrain_quads, water_quads)
     }
 }
 
