@@ -314,7 +314,15 @@ impl State {
         let mut write_ops = WorldWriteOps {
             completed_chunks: completed_chunks
                 .into_iter()
-                .map(|r| (r.cx, r.cz, r.chunk))
+                
+                
+                
+                
+                .filter(|result| {
+                    (result.cx - player_cx).abs() <= GENERATION_DISTANCE
+                        && (result.cz - player_cz).abs() <= GENERATION_DISTANCE
+                })
+                .map(|result| (result.cx, result.cz, result.chunk))
                 .collect(),
             block_break: None,
             block_places: Vec::new(),
