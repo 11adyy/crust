@@ -4,7 +4,8 @@ use wgpu::util::DeviceExt;
 
 use crust::{
     BlockType, CHUNK_SIZE, DEFAULT_FOV, MAX_MESH_BUILDS_PER_FRAME, RENDER_DISTANCE, SEA_LEVEL,
-    Uniforms, Vertex, World, build_block_outline, build_player_model, extract_frustum_planes,
+    SUN_MOVEMENT_SPEED, Uniforms, Vertex, World, build_block_outline, build_player_model,
+    extract_frustum_planes,
 };
 
 use crate::logger::{LogLevel, log};
@@ -275,7 +276,7 @@ impl State {
 
         
         
-        let day_cycle_speed = 0.005;
+        let day_cycle_speed = SUN_MOVEMENT_SPEED;
         
         
         let sun_angle = time * day_cycle_speed + std::f32::consts::FRAC_PI_2;
