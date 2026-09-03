@@ -18,6 +18,7 @@ use crust::{
 use crate::logger::{LogLevel, log};
 use crate::ui::menu::GameState;
 
+use super::performance::process_cpu_time_ms;
 use super::server::run_dedicated_server;
 use super::state::State;
 
@@ -372,9 +373,13 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     
-                    let update_start = Instant::now();
+                    
+                    
+                    let frame_cpu_start = process_cpu_time_ms();
+                    let frame_start = Instant::now();
+
+                    
                     state.update();
-                    state.cpu_update_ms = update_start.elapsed().as_secs_f32() * 1000.0;
 
                     match state.render() {
                         Ok(_) => {}
@@ -386,6 +391,34 @@ pub fn run_game() -> Result<(), Box<dyn std::error::Error>> {
                         
                         Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
                         Err(e) => log(LogLevel::Error, &format!("Render error: {:?}", e)),
+                    }
+
+                    
+                    
+                    
+                    let sample_end = Instant::now();
+                    if let Some(cpu_end) = process_cpu_time_ms() {
+                        state.cpu_time_sample_frames += 1;
+                        match state.cpu_time_sample_start {
+                            Some((cpu_start, sample_start))
+                                if sample_end.duration_since(sample_start).as_millis() >= 250 =>
+                            {
+                                state.cpu_update_ms = (cpu_end - cpu_start).max(0.0) as f32
+                                    / state.cpu_time_sample_frames as f32;
+                                state.cpu_time_sample_start = Some((cpu_end, sample_end));
+                                state.cpu_time_sample_frames = 0;
+                            }
+                            Some(_) => {}
+                            None => {
+                                state.cpu_time_sample_start = Some((cpu_end, sample_end));
+                                state.cpu_time_sample_frames = 0;
+                            }
+                        }
+                    } else {
+                        
+                        state.cpu_update_ms = frame_cpu_start
+                            .map(|start| (process_cpu_time_ms().unwrap_or(start) - start) as f32)
+                            .unwrap_or_else(|| frame_start.elapsed().as_secs_f32() * 1000.0);
                     }
 
                     
