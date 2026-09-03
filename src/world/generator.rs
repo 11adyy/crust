@@ -347,10 +347,17 @@ impl ChunkGenerator {
         let density_lattice = self.build_density_lattice(base_x, base_z, &density_shapes);
         
         
+        
+        let mut density_columns =
+            [[[0.0; DENSITY_Y_SAMPLES]; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
+        
+        
         for lx in 0..CHUNK_SIZE {
             for lz in 0..CHUNK_SIZE {
+                let density_column = self.density_vertical_column(&density_lattice, lx, lz);
                 height_map[lx as usize][lz as usize] =
-                    self.density_surface_height(&density_lattice, lx, lz);
+                    Self::density_surface_height(&density_column);
+                density_columns[lx as usize][lz as usize] = density_column;
             }
         }
         
@@ -407,8 +414,9 @@ impl ChunkGenerator {
                 
                 
                 let max_y = surface_height.max(SEA_LEVEL).min(WORLD_HEIGHT - 1);
+                let density_column = &density_columns[lx as usize][lz as usize];
                 for y in 0..=max_y {
-                    let terrain_density = self.sample_density_lattice(&density_lattice, lx, y, lz);
+                    let terrain_density = Self::sample_density_column(density_column, y);
                     let cave_density = self.sample_cave_lattice(
                         &cave_lattice,
                         lx,
@@ -1126,7 +1134,8 @@ impl ChunkGenerator {
                 let z = base_z + lz;
                 
                 
-                let surface_height = self.density_surface_height(density_lattice, lx, lz);
+                let density_column = self.density_vertical_column(density_lattice, lx, lz);
+                let surface_height = Self::density_surface_height(&density_column);
                 let is_entrance = self.is_cave_entrance(x, z, surface_height);
 
                 for iy in 0..CAVE_Y_SAMPLES {
@@ -1178,34 +1187,39 @@ impl ChunkGenerator {
         (SEA_LEVEL as f64 - y as f64) / 64.0
     }
 
-    fn sample_density_lattice(
+    /// Horizontally interpolate all vertical endpoints for one `(lx, lz)`
+    /// column. This turns voxel density sampling into a single vertical lerp.
+    fn density_vertical_column(
         &self,
         lattice: &[f64; DENSITY_LATTICE_LEN],
         lx: i32,
-        y: i32,
         lz: i32,
-    ) -> f64 {
+    ) -> [f64; DENSITY_Y_SAMPLES] {
         let ix = (lx / DENSITY_CELL_SIZE) as usize;
-        let iy = (y / DENSITY_CELL_SIZE) as usize;
         let iz = (lz / DENSITY_CELL_SIZE) as usize;
         let tx = (lx.rem_euclid(DENSITY_CELL_SIZE) as f64) / DENSITY_CELL_SIZE as f64;
-        let ty = (y.rem_euclid(DENSITY_CELL_SIZE) as f64) / DENSITY_CELL_SIZE as f64;
         let tz = (lz.rem_euclid(DENSITY_CELL_SIZE) as f64) / DENSITY_CELL_SIZE as f64;
         let x1 = (ix + 1).min(DENSITY_XZ_SAMPLES - 1);
-        let y1 = (iy + 1).min(DENSITY_Y_SAMPLES - 1);
         let z1 = (iz + 1).min(DENSITY_XZ_SAMPLES - 1);
-        let at = |x, yy, z| lattice[Self::density_index(x, yy, z)];
-        let a = lerp(
-            lerp(at(ix, iy, iz), at(x1, iy, iz), tx),
-            lerp(at(ix, iy, z1), at(x1, iy, z1), tx),
-            tz,
-        );
-        let b = lerp(
-            lerp(at(ix, y1, iz), at(x1, y1, iz), tx),
-            lerp(at(ix, y1, z1), at(x1, y1, z1), tx),
-            tz,
-        );
-        lerp(a, b, ty)
+        let mut column = [0.0; DENSITY_Y_SAMPLES];
+
+        for iy in 0..DENSITY_Y_SAMPLES {
+            let at = |x, z| lattice[Self::density_index(x, iy, z)];
+            column[iy] = lerp(
+                lerp(at(ix, iz), at(x1, iz), tx),
+                lerp(at(ix, z1), at(x1, z1), tx),
+                tz,
+            );
+        }
+
+        column
+    }
+
+    fn sample_density_column(column: &[f64; DENSITY_Y_SAMPLES], y: i32) -> f64 {
+        let iy = (y / DENSITY_CELL_SIZE) as usize;
+        let ty = (y.rem_euclid(DENSITY_CELL_SIZE) as f64) / DENSITY_CELL_SIZE as f64;
+        let y1 = (iy + 1).min(DENSITY_Y_SAMPLES - 1);
+        lerp(column[iy], column[y1], ty)
     }
 
     fn sample_cave_lattice(
@@ -1260,18 +1274,25 @@ impl ChunkGenerator {
         }
     }
 
-    fn density_surface_height(
-        &self,
-        lattice: &[f64; DENSITY_LATTICE_LEN],
-        lx: i32,
-        lz: i32,
-    ) -> i32 {
+    fn density_surface_height(column: &[f64; DENSITY_Y_SAMPLES]) -> i32 {
         
         
         
-        for y in (1..WORLD_HEIGHT).rev() {
-            if self.sample_density_lattice(lattice, lx, y, lz) > 0.0 {
-                return y + 1;
+        
+        for iy in (0..DENSITY_Y_SAMPLES).rev() {
+            if column[iy] <= 0.0 {
+                continue;
+            }
+
+            let cell_bottom = iy as i32 * DENSITY_CELL_SIZE;
+            if cell_bottom >= WORLD_HEIGHT {
+                continue;
+            }
+            let cell_top = (cell_bottom + DENSITY_CELL_SIZE - 1).min(WORLD_HEIGHT - 1);
+            for y in (cell_bottom.max(1)..=cell_top).rev() {
+                if Self::sample_density_column(column, y) > 0.0 {
+                    return y + 1;
+                }
             }
         }
         1
@@ -1475,26 +1496,29 @@ impl ChunkGenerator {
         if block != BlockType::Stone {
             return block;
         }
-        if y <= 6 || y >= WORLD_HEIGHT - 2 {
+        if !(18..=78).contains(&y) {
             return block;
         }
 
         
         
         
-        let fx = world_x as f32;
-        let fy = y as f32;
-        let fz = world_z as f32;
-        let n = self.noise_ore.get_noise_3d(fx, fy, fz);
-        let n2 = self
+        let n = self
             .noise_ore
-            .get_noise_3d(fx + 200.0, fy + 200.0, fz + 200.0);
-
-        if (18..=78).contains(&y) && n > 0.62 {
+            .get_noise_3d(world_x as f32, y as f32, world_z as f32);
+        if n > 0.62 {
             return BlockType::Gravel;
         }
-        if (38..=66).contains(&y) && n2 > 0.70 {
-            return BlockType::Clay;
+
+        if (38..=66).contains(&y) {
+            let n2 = self.noise_ore.get_noise_3d(
+                world_x as f32 + 200.0,
+                y as f32 + 200.0,
+                world_z as f32 + 200.0,
+            );
+            if n2 > 0.70 {
+                return BlockType::Clay;
+            }
         }
 
         block
