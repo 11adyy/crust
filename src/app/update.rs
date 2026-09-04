@@ -231,6 +231,15 @@ impl State {
             &aabb_copy,
         );
 
+        
+        
+        
+        let metadata_relocated = self.indirect_manager.take_cull_metadata_refresh()
+            || self.water_indirect_manager.take_cull_metadata_refresh();
+        if metadata_relocated {
+            self.indirect_manager
+                .refresh_cull_metadata(&self.queue, &self.water_indirect_manager);
+        }
         self.indirect_manager.update_cull_subchunk(
             &self.queue,
             key,
