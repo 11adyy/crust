@@ -539,6 +539,7 @@ impl State {
         
         
         let section_start = Instant::now();
+        let broke_block = write_ops.block_break.is_some();
         if !write_ops.completed_chunks.is_empty()
             || write_ops.block_break.is_some()
             || !write_ops.block_places.is_empty()
@@ -676,6 +677,9 @@ impl State {
         if placed_from_inventory {
             debug_assert!(self.inventory.selected_stack().is_some());
             let _ = self.inventory.consume_selected(1);
+            self.hotbar_dirty = true;
+        }
+        if broke_block && self.inventory.damage_selected_tool(crust::item_registry()) {
             self.hotbar_dirty = true;
         }
 
