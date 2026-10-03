@@ -6,7 +6,7 @@ This project includes comprehensive documentation across multiple files. Here's 
 
 ## 🎯 Start Here
 
-1. **[README.md](README.md)** ⭐ *Main Project Overview*
+1. **[README.md](../README.md)** ⭐ *Main Project Overview*
    - High-level project description
    - Key features and capabilities
    - Performance highlights
@@ -42,7 +42,7 @@ Each major module has its own detailed README:
 
 - **[src/ui/README.md](../src/ui/README.md)** - User interface system
 - **[src/utils/README.md](../src/utils/README.md)** - Configuration & utilities
-- **[assets/README.md](assets/README.md)** - Game assets guide
+- **[assets/README.md](../assets/README.md)** - Game assets guide
 
 ## 🗂️ Documentation Map
 
@@ -95,7 +95,7 @@ crust/
 → Read [src/utils/README.md](../src/utils/README.md)
 
 **All assets and resources:**
-→ Read [assets/README.md](assets/README.md)
+→ Read [assets/README.md](../assets/README.md)
 
 **Building and development:**
 → Read [DEVELOPMENT.md](DEVELOPMENT.md)
@@ -160,7 +160,7 @@ crust/
 
 ## 🚀 Getting Started
 
-1. **First Time?** Start with [README.md](README.md)
+1. **First Time?** Start with [README.md](../README.md)
 2. **Want to build?** See [DEVELOPMENT.md](DEVELOPMENT.md)
 3. **Understanding structure?** Read [FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md)
 4. **Specific module?** Find it in the [documentation map above](#-documentation-map)
@@ -170,7 +170,7 @@ crust/
 **By Experience Level:**
 
 ### Beginners
-1. [README.md](README.md) - Overview
+1. [README.md](../README.md) - Overview
 2. [FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md) - Project organization
 3. [src/README.md](../src/README.md) - Source organization
 4. Choose a module of interest
@@ -279,5 +279,5 @@ All documentation files in this project follow these principles:
 **Project Version:** 0.1.0  
 **Status:** Active Development
 
-For the latest updates, check the main [README.md](README.md).
+For the latest updates, check the main [README.md](../README.md).
 

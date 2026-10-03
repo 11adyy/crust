@@ -3,3 +3,6 @@
 assets/textures
 settings.bin
 world.r3d
+world.crust
+*.log
+assets/texture_atlas.cache
