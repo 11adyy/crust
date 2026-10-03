@@ -1,0 +1,26 @@
+name: Import verified crust history
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify archive and create the crust branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "60e65338eddada72e5704b52fef261aba5334cbcc6fe5ddca9ba6f7cfe70f819  crust-import.zip" | sha256sum --check
+          unzip -q crust-import.zip -d imported
+          git bundle verify imported/crust.bundle
+          git fetch imported/crust.bundle refs/heads/crust:refs/heads/prepared-crust
+          test "$(git rev-parse prepared-crust)" = "1503cefe52c092f5f808408b9b34a09c74d49ca7"
+          if git ls-remote --exit-code --heads origin crust; then
+            echo "The destination branch already exists; refusing to update it." >&2
+            exit 1
+          fi
+          git push origin prepared-crust:refs/heads/crust
