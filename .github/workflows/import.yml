@@ -14,11 +14,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "60e65338eddada72e5704b52fef261aba5334cbcc6fe5ddca9ba6f7cfe70f819  crust-import.zip" | sha256sum --check
+          echo "97d89b1f12f494594ce91ade92340a1f1425761189eee18a73f49ebda00a3f6f  crust-import.zip" | sha256sum --check
           unzip -q crust-import.zip -d imported
           git bundle verify imported/crust.bundle
           git fetch imported/crust.bundle refs/heads/crust:refs/heads/prepared-crust
-          test "$(git rev-parse prepared-crust)" = "1503cefe52c092f5f808408b9b34a09c74d49ca7"
+          test "$(git rev-parse prepared-crust)" = "7e9697bc2de59b1d276aaf71425ab9c003d3299a"
           if git ls-remote --exit-code --heads origin crust; then
             echo "The destination branch already exists; refusing to update it." >&2
             exit 1
