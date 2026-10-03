@@ -1,7 +1,7 @@
 name: Verify prepared source
 on:
   push:
-    paths: ['crust-import.zip']
+    paths: ['crust-import.zip', '.github/workflows/verify-import.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           unzip -q crust-import.zip -d imported
-          git clone imported/crust.bundle source
+          git clone --branch crust imported/crust.bundle source
           git -C source fsck --full
           test -z "$(git -C source rev-list --merges --all)"
       - uses: Swatinem/rust-cache@v2
