@@ -1,0 +1,29 @@
+name: Verify prepared source
+on:
+  push:
+    paths: ['crust-import.zip']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Open archive and verify history
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q crust-import.zip -d imported
+          git clone imported/crust.bundle source
+          git -C source fsck --full
+          test -z "$(git -C source rev-list --merges --all)"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source
+      - name: Check and test source
+        working-directory: source
+        run: |
+          cargo check --locked --all-targets
+          cargo test --locked
